@@ -26,6 +26,7 @@
             background: #444; color: white; border: none; 
             padding: 8px 14px; border-radius: 4px; cursor: pointer; 
             font-size: 14px;
+            min-width: 44px;
         }
         #toolbar button:active { background: #666; }
 
@@ -34,7 +35,6 @@
             width: 100%; 
             position: relative; 
             background: white; 
-            /* Added perspective for 3D effect */
             perspective: 2000px; 
         }
 
@@ -44,7 +44,6 @@
             font-weight: bold; text-align: center;
         }
 
-        /* The iframe container needs to support 3D */
         .epub-view {
             perspective: 2000px !important;
         }
@@ -70,12 +69,11 @@
     let fontScale = 100;
     let isDark = false;
 
-    /* --- PAGE CURL HELPER (FIXED) --- */
+    /* --- PAGE CURL HELPER --- */
     function applyPageCurl(direction) {
         const iframe = document.querySelector("#viewer iframe");
         if (!iframe) return;
 
-        // 1. Define the animation CSS to be injected
         const animationStyles = `
             @keyframes curlNext {
                 0% { transform: rotateY(0deg); opacity: 1; }
@@ -100,7 +98,6 @@
         const doc = iframe.contentDocument;
         if (!doc) return;
 
-        // 2. Inject styles if they don't exist
         if (!doc.getElementById("curl-styles")) {
             const styleTag = doc.createElement("style");
             styleTag.id = "curl-styles";
@@ -108,13 +105,11 @@
             doc.head.appendChild(styleTag);
         }
 
-        // 3. Apply the class to the body of the iframe
         const body = doc.body;
         body.classList.remove("animate-next", "animate-prev");
-        void body.offsetWidth; // Force reflow
+        void body.offsetWidth; 
         body.classList.add(direction === "next" ? "animate-next" : "animate-prev");
 
-        // 4. Cleanup after animation
         setTimeout(() => {
             body.classList.remove("animate-next", "animate-prev");
         }, 400);
@@ -144,6 +139,8 @@
 
             rendition.display().then(() => {
                 document.getElementById('loading').style.display = 'none';
+                // Initialize default font size
+                rendition.themes.fontSize(fontScale + "%");
             });
 
             rendition.on("relocated", loc => {
@@ -155,7 +152,7 @@
         }
     }
 
-    /* --- 4. UI Controls --- */
+    /* --- 4. UI Controls (FIXED FONT SIZE) --- */
     function next() {
         if (!rendition) return;
         applyPageCurl("next");
@@ -170,21 +167,33 @@
 
     function fontSize(delta) {
         if (!rendition) return;
+        
+        // Update scale and constrain it between 50% and 300%
         fontScale += delta;
-        rendition.themes.fontSize(fontScale + "%");
+        if (fontScale < 50) fontScale = 50;
+        if (fontScale > 300) fontScale = 300;
+
+        // Use override to ensure it forces through the iframe styles
+        rendition.themes.override("font-size", fontScale + "%", true);
     }
 
     function toggleTheme() {
         if (!rendition) return;
         isDark = !isDark;
         const themeName = isDark ? "dark" : "light";
+        
+        // Using register + select to handle the theme properly
         rendition.themes.register(themeName, {
             body: {
-                background: isDark ? "#1a1a1a" : "#ffffff",
-                color: isDark ? "#eee" : "#000"
+                "background": isDark ? "#1a1a1a" : "#ffffff",
+                "color": isDark ? "#eee" : "#000"
             }
         });
+        
         rendition.themes.select(themeName);
+        
+        // Re-apply font scale after theme change to ensure it stays
+        rendition.themes.override("font-size", fontScale + "%", true);
     }
 
     function sendToRN(type, data) {
