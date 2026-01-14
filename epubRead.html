@@ -3,73 +3,76 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Realistic Page Peel Reader</title>
+    <title>Realistic 3D Page Curl Reader</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
 
     <style>
-        :root {
-            --page-bg: #ffffff;
-            --fold-color: #f0f0f0;
-        }
         body { 
             margin: 0; padding: 0; height: 100vh; 
             display: flex; flex-direction: column; 
-            background: #ccc; font-family: system-ui, sans-serif; 
+            background: #2c2c2c; font-family: sans-serif; 
             overflow: hidden;
         }
         #toolbar { 
-            height: 50px; background: #222; 
+            height: 50px; background: #1a1a1a; 
             display: flex; align-items: center; 
-            justify-content: space-around; padding: 0 10px; z-index: 1000; 
+            justify-content: space-around; padding: 0 10px; z-index: 1000;
+            border-bottom: 1px solid #333;
         }
         #toolbar button { 
-            background: #444; color: white; border: none; padding: 8px 14px; border-radius: 4px; 
+            background: #444; color: white; border: none; 
+            padding: 8px 12px; border-radius: 4px; cursor: pointer; 
         }
 
-        #book-container {
+        /* Book Container */
+        #book-viewport {
             flex-grow: 1;
             position: relative;
-            background: #bbb;
+            perspective: 2000px; /* Depth for 3D */
+            background: #3a3a3a;
+            overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            overflow: hidden;
         }
 
         #viewer { 
             width: 100%; height: 100%;
-            background: var(--page-bg);
-            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+            background: white;
             z-index: 1;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            position: absolute;
         }
 
-        /* The 'Peel' effect overlay */
-        #page-peel {
+        /* The Curl/Flip Layer */
+        #page-flip-overlay {
             position: absolute;
             top: 0; right: 0;
             width: 100%; height: 100%;
-            background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.05) 50%, var(--fold-color) 65%, white 100%);
-            z-index: 10;
+            z-index: 100;
             pointer-events: none;
-            transform: translateX(100%); /* Start hidden */
-            box-shadow: -10px 0 20px rgba(0,0,0,0.15);
-            transition: transform 0.1s ease-out;
+            display: none; /* Only visible during flip */
         }
 
-        /* The curved shadow that follows the fold */
-        #peel-shadow {
+        /* The "Back" of the turning page */
+        .page-back {
             position: absolute;
-            top: 0; right: 0;
-            width: 150%; height: 100%;
-            background: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.2) 100%);
-            z-index: 5;
-            pointer-events: none;
-            transform: translateX(100%);
+            background: linear-gradient(to left, #ffffff 80%, #f0f0f0 100%);
+            box-shadow: -5px 0 15px rgba(0,0,0,0.3);
+            transform-origin: right center;
+            z-index: 101;
         }
 
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; }
+        /* Shadow on the page underneath */
+        .page-shadow {
+            position: absolute;
+            background: linear-gradient(to right, rgba(0,0,0,0.2) 0%, transparent 100%);
+            z-index: 99;
+        }
+
+        #loading { position: absolute; color: white; z-index: 10; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -82,24 +85,26 @@
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Loading...</div>
+<div id="loading">Opening Book...</div>
 
-<div id="book-container">
+<div id="book-viewport">
     <div id="viewer"></div>
-    <div id="peel-shadow"></div>
-    <div id="page-peel"></div>
+    <div id="page-flip-overlay">
+        <div id="flip-back" class="page-back"></div>
+        <div id="flip-shadow" class="page-shadow"></div>
+    </div>
 </div>
 
 <script>
     let book, rendition;
     let fontScale = 100;
     let isDark = false;
-    
     let startX = 0;
     let isDragging = false;
 
-    const peel = document.getElementById('page-peel');
-    const peelShadow = document.getElementById('peel-shadow');
+    const overlay = document.getElementById('page-flip-overlay');
+    const flipBack = document.getElementById('flip-back');
+    const flipShadow = document.getElementById('flip-shadow');
 
     function initReader(url) {
         book = ePub(url);
@@ -110,67 +115,98 @@
         rendition.display().then(() => {
             document.getElementById('loading').style.display = 'none';
             applyStyles();
-            setupPeelInteractions();
+            setupCurlEffect();
         });
     }
 
-    function setupPeelInteractions() {
+    function setupCurlEffect() {
         rendition.on("touchstart", e => {
             startX = e.changedTouches[0].screenX;
             isDragging = true;
-            peel.style.transition = "none";
-            peelShadow.style.transition = "none";
         });
 
         rendition.on("touchmove", e => {
             if (!isDragging) return;
-            let currentX = e.changedTouches[0].screenX;
-            let diff = startX - currentX; // Positive when swiping left
             
-            if (diff > 0) { // Next page peel
-                let move = 100 - (diff / window.innerWidth * 100);
-                // Simulate the 'Curved' edge by translating the peel layer
-                peel.style.transform = `translateX(${move}%) skewY(${(100-move)/4}deg)`;
-                peelShadow.style.transform = `translateX(${move - 10}%)`;
-                peelShadow.style.opacity = (diff / window.innerWidth);
+            let currentX = e.changedTouches[0].screenX;
+            let diff = startX - currentX; // Dragging distance
+
+            if (diff > 20) { // Dragging Left (Next Page)
+                showCurl(diff);
             }
         });
 
         rendition.on("touchend", e => {
+            if (!isDragging) return;
             isDragging = false;
             let endX = e.changedTouches[0].screenX;
             let diff = startX - endX;
 
-            peel.style.transition = "transform 0.5s ease-in-out, skewY 0.5s";
-            peelShadow.style.transition = "transform 0.5s ease-in-out, opacity 0.5s";
-
-            if (diff > 100) { // Successful Swipe
-                peel.style.transform = "translateX(-100%)";
-                peelShadow.style.transform = "translateX(-110%)";
-                setTimeout(() => {
-                    rendition.next();
-                    resetPeel();
-                }, 500);
-            } else if (diff < -100) { // Prev Swipe
-                rendition.prev();
-                resetPeel();
+            if (diff > 120) {
+                completeFlip();
             } else {
-                resetPeel();
+                cancelFlip();
             }
         });
     }
 
-    function resetPeel() {
-        peel.style.transform = "translateX(100%) skewY(0deg)";
-        peelShadow.style.transform = "translateX(100%)";
-        peelShadow.style.opacity = "0";
+    function showCurl(diff) {
+        const width = window.innerWidth;
+        const progress = Math.min(diff / width, 1);
+        
+        overlay.style.display = 'block';
+        
+        // Calculate curl position
+        // Clip-path makes the current page "disappear" from the corner
+        document.getElementById('viewer').style.clipPath = 
+            `polygon(0% 0%, ${100 - (progress * 100)}% 0%, ${100 - (progress * 120)}% 100%, 0% 100%)`;
+
+        // Position the "back" of the page
+        flipBack.style.width = (progress * 100) + "%";
+        flipBack.style.height = "100%";
+        flipBack.style.right = (100 - (progress * 110)) + "%";
+        flipBack.style.transform = `rotateY(${-progress * 30}deg)`; // 3D bend
+        
+        // Shadow follows the fold
+        flipShadow.style.width = "50px";
+        flipShadow.style.height = "100%";
+        flipShadow.style.right = (100 - (progress * 110)) + "%";
+        flipShadow.style.opacity = progress;
     }
 
-    /* --- STANDARD FUNCTIONS --- */
+    function completeFlip() {
+        // Animate to full flip
+        const viewer = document.getElementById('viewer');
+        viewer.style.transition = "clip-path 0.4s ease-in";
+        viewer.style.clipPath = "polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)";
+        
+        setTimeout(() => {
+            rendition.next();
+            resetStyles();
+        }, 400);
+    }
+
+    function cancelFlip() {
+        const viewer = document.getElementById('viewer');
+        viewer.style.transition = "clip-path 0.3s ease-out";
+        viewer.style.clipPath = "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)";
+        
+        setTimeout(() => {
+            resetStyles();
+        }, 300);
+    }
+
+    function resetStyles() {
+        const viewer = document.getElementById('viewer');
+        viewer.style.transition = "none";
+        viewer.style.clipPath = "none";
+        overlay.style.display = 'none';
+    }
+
+    /* --- Actions --- */
     function next() {
-        peel.style.transition = "transform 0.6s ease-in-out, skewY 0.6s";
-        peel.style.transform = "translateX(-100%) skewY(15deg)";
-        setTimeout(() => { rendition.next(); resetPeel(); }, 600);
+        showCurl(window.innerWidth / 2);
+        setTimeout(() => completeFlip(), 100);
     }
 
     function prev() {
@@ -196,8 +232,7 @@
 
     function toggleTheme() {
         isDark = !isDark;
-        document.body.style.background = isDark ? "#111" : "#ccc";
-        document.getElementById('book-container').style.background = isDark ? "#222" : "#bbb";
+        document.body.style.background = isDark ? "#111" : "#2c2c2c";
         applyStyles();
     }
 
