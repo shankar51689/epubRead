@@ -36,9 +36,6 @@
             perspective: 3000px;
             background: #252525;
             overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
         }
 
         #viewer {
@@ -49,19 +46,30 @@
             position: absolute;
         }
 
-        /* ===== REALISTIC PAGE PEEL ===== */
+        /* Page thickness stack */
+        #page-stack {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .page-layer {
+            position: absolute;
+            inset: 0;
+            background: #eaeaea;
+        }
+
+        /* Page curl */
         #page-peel {
             position: absolute;
-            top: 0; right: 0;
-            width: 100%; height: 100%;
+            inset: 0;
             z-index: 100;
-            pointer-events: none;
             display: none;
+            pointer-events: none;
             background: white;
-
             transform-origin: right center;
             backface-visibility: hidden;
-
             box-shadow:
                 -40px 0 60px rgba(0,0,0,0.25),
                 inset -20px 0 30px rgba(0,0,0,0.15);
@@ -81,8 +89,7 @@
 
         #under-shadow {
             position: absolute;
-            top: 0; right: 0;
-            width: 100%; height: 100%;
+            inset: 0;
             z-index: 5;
             background: rgba(0,0,0,0.25);
             display: none;
@@ -102,8 +109,9 @@
 
 <div id="toolbar">
     <button onclick="prev()">◀ Prev</button>
+    <button onclick="toggleRTL()">RTL</button>
+    <button onclick="toggleSpread()">📖</button>
     <button onclick="fontSize(-10)">A−</button>
-    <button onclick="toggleTheme()">🌓</button>
     <button onclick="fontSize(10)">A+</button>
     <button onclick="next()">Next ▶</button>
 </div>
@@ -111,6 +119,7 @@
 <div id="loading">Initialising Realistic Reader...</div>
 
 <div id="book-viewport">
+    <div id="page-stack"></div>
     <div id="viewer"></div>
     <div id="under-shadow"></div>
     <div id="page-peel">
@@ -124,9 +133,14 @@
     let isDragging = false;
     let startX = 0;
 
-    const peel = document.getElementById('page-peel');
-    const viewer = document.getElementById('viewer');
-    const uShadow = document.getElementById('under-shadow');
+    let isRTL = false;
+    let isTwoPage = false;
+    let pageThickness = 8;
+
+    const peel = document.getElementById("page-peel");
+    const viewer = document.getElementById("viewer");
+    const uShadow = document.getElementById("under-shadow");
+    const stack = document.getElementById("page-stack");
 
     function initReader(url) {
         book = ePub(url);
@@ -137,12 +151,42 @@
         });
 
         rendition.display().then(() => {
-            document.getElementById('loading').style.display = 'none';
+            document.getElementById("loading").style.display = "none";
+            buildStack();
             setupGestures();
         });
     }
 
+    function buildStack() {
+        stack.innerHTML = "";
+        for (let i = pageThickness; i > 0; i--) {
+            const layer = document.createElement("div");
+            layer.className = "page-layer";
+            layer.style.transform = `translateX(${i * (isRTL ? -1 : 1)}px)`;
+            layer.style.opacity = 1 - i * 0.08;
+            stack.appendChild(layer);
+        }
+    }
+
     function setupGestures() {
+        viewer.addEventListener("mousedown", e => {
+            startX = e.clientX;
+            isDragging = true;
+        });
+
+        window.addEventListener("mousemove", e => {
+            if (!isDragging) return;
+            const diffX = startX - e.clientX;
+            isRTL ? updateCurlRTL(diffX) : updateCurl(diffX);
+        });
+
+        window.addEventListener("mouseup", e => {
+            if (!isDragging) return;
+            isDragging = false;
+            const diffX = startX - e.clientX;
+            diffX > 150 ? finishFlip() : resetFlip();
+        });
+
         rendition.on("touchstart", e => {
             startX = e.changedTouches[0].screenX;
             isDragging = true;
@@ -151,7 +195,7 @@
         rendition.on("touchmove", e => {
             if (!isDragging) return;
             const diffX = startX - e.changedTouches[0].screenX;
-            if (diffX > 10) updateCurl(diffX);
+            isRTL ? updateCurlRTL(diffX) : updateCurl(diffX);
         });
 
         rendition.on("touchend", e => {
@@ -162,18 +206,17 @@
         });
     }
 
-    /* ===== REAL BOOK CURL PHYSICS ===== */
     function updateCurl(diffX) {
         const percent = Math.min(Math.max(diffX / window.innerWidth, 0), 1);
 
         peel.style.display = "block";
         uShadow.style.display = "block";
+        peel.style.transformOrigin = "right center";
 
-        const clip = 100 - percent * 100;
         viewer.style.clipPath = `polygon(
             0% 0%,
-            ${clip}% 0%,
-            ${clip}% 100%,
+            ${100 - percent * 100}% 0%,
+            ${100 - percent * 100}% 100%,
             0% 100%
         )`;
 
@@ -186,53 +229,84 @@
         uShadow.style.opacity = percent * 0.7;
     }
 
+    function updateCurlRTL(diffX) {
+        const percent = Math.min(Math.max(diffX / window.innerWidth, 0), 1);
+
+        peel.style.display = "block";
+        uShadow.style.display = "block";
+        peel.style.transformOrigin = "left center";
+
+        viewer.style.clipPath = `polygon(
+            ${percent * 100}% 0%,
+            100% 0%,
+            100% 100%,
+            ${percent * 100}% 100%
+        )`;
+
+        peel.style.transform = `
+            translateX(${percent * 15}%)
+            rotateY(${percent * 160}deg)
+        `;
+
+        uShadow.style.opacity = percent * 0.7;
+    }
+
     function finishFlip() {
-        viewer.style.transition = "clip-path 0.6s ease";
         peel.style.transition = "transform 0.6s ease";
+        viewer.style.transition = "clip-path 0.6s ease";
+
+        peel.style.transform = isRTL
+            ? "translateX(30%) rotateY(180deg)"
+            : "translateX(-30%) rotateY(-180deg)";
 
         viewer.style.clipPath = "polygon(0 0,0 0,0 100%,0 100%)";
-        peel.style.transform = "translateX(-30%) rotateY(-180deg)";
 
         setTimeout(() => {
-            rendition.next();
+            isRTL ? rendition.prev() : rendition.next();
             clearStyles();
         }, 600);
     }
 
     function resetFlip() {
-        viewer.style.transition = "clip-path 0.35s ease-out";
         peel.style.transition = "transform 0.35s ease-out";
+        viewer.style.transition = "clip-path 0.35s ease-out";
 
-        viewer.style.clipPath = "none";
         peel.style.transform = "translateX(0) rotateY(0)";
+        viewer.style.clipPath = "none";
 
         setTimeout(clearStyles, 350);
     }
 
     function clearStyles() {
-        viewer.style.transition = "none";
-        peel.style.transition = "none";
         peel.style.display = "none";
         uShadow.style.display = "none";
+        peel.style.transition = "none";
+        viewer.style.transition = "none";
         viewer.style.clipPath = "none";
     }
 
-    /* --- Controls --- */
     function next() {
-        updateCurl(window.innerWidth / 3);
-        setTimeout(finishFlip, 120);
+        isRTL ? rendition.prev() : rendition.next();
     }
 
     function prev() {
-        rendition.prev();
+        isRTL ? rendition.next() : rendition.prev();
+    }
+
+    function toggleRTL() {
+        isRTL = !isRTL;
+        buildStack();
+    }
+
+    function toggleSpread() {
+        isTwoPage = !isTwoPage;
+        rendition.spread(isTwoPage ? "always" : "none");
     }
 
     function fontSize(delta) {
         fontScale = Math.min(Math.max(fontScale + delta, 40), 250);
         rendition.themes.fontSize(fontScale + "%");
     }
-
-    function toggleTheme() {}
 
     const params = new URLSearchParams(window.location.search);
     const url = params.get("url");
