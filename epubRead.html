@@ -4,15 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>EPUB Reader</title>
+    
     <link rel="icon" href="data:,">
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+
     <style>
-        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; background: #f5f5f5; font-family: sans-serif; }
-        #toolbar { height: 50px; background: #222; display: flex; align-items: center; justify-content: space-around; padding: 0 10px; z-index: 100; }
-        #toolbar button { background: #444; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+        body { 
+            margin: 0; padding: 0; height: 100vh; 
+            display: flex; flex-direction: column; 
+            background: #f5f5f5; font-family: system-ui, -apple-system, sans-serif; 
+        }
+        #toolbar { 
+            height: 50px; background: #222; 
+            display: flex; align-items: center; 
+            justify-content: space-around; padding: 0 10px; z-index: 100; 
+        }
+        #toolbar button { 
+            background: #444; color: white; border: none; 
+            padding: 8px 14px; border-radius: 4px; cursor: pointer; 
+            font-size: 14px;
+        }
+        #toolbar button:active { background: #666; }
         #viewer { flex-grow: 1; width: 100%; position: relative; background: white; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-weight: bold; }
+        #loading { 
+            position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%); color: #666; 
+            font-weight: bold; text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -25,28 +45,36 @@
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Initializing Book...</div>
+<div id="loading">Initializing Reader...</div>
 <div id="viewer"></div>
 
 <script>
-    let book, rendition;
+    /* --- 1. Global State Variables --- */
+    let book;
+    let rendition;
     let fontScale = 100;
     let isDark = false;
 
-    // 1. Get and Clean URL
+    /* --- 2. URL Processing & Cache Busting --- */
     const params = new URLSearchParams(window.location.search);
-    const rawUrl = params.get("url");
+    let epubUrl = params.get("url");
 
-    if (!rawUrl) {
+    if (!epubUrl) {
         document.getElementById('loading').innerText = "Error: No EPUB URL provided.";
     } else {
-        const epubUrl = decodeURIComponent(rawUrl);
-        loadBook(epubUrl);
+        epubUrl = decodeURIComponent(epubUrl);
+        
+        // Add a timestamp to bypass browser CORS cache
+        const cacheBuster = epubUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
+        const finalUrl = epubUrl + cacheBuster;
+
+        initReader(finalUrl);
     }
 
-    function loadBook(url) {
+    /* --- 3. Reader Initialization --- */
+    function initReader(url) {
         try {
-            // Define book first to avoid ReferenceError
+            // Initialize book immediately to prevent ReferenceError
             book = ePub(url);
             
             rendition = book.renderTo("viewer", {
@@ -56,41 +84,68 @@
                 manager: "default"
             });
 
-            book.ready.then(() => {
+            // Start Rendering
+            const display = rendition.display();
+
+            display.then(() => {
                 document.getElementById('loading').style.display = 'none';
-                return rendition.display();
-            }).catch(err => {
-                console.error("S3/CORS Error:", err);
-                document.getElementById('loading').innerText = "Error: Cannot access file. Check S3 CORS settings.";
+                console.log("Book displayed successfully");
             });
 
-            // Page Change Sync
+            // Handle Loading Errors (usually CORS or File issues)
+            book.ready.catch(err => {
+                console.error("Reader Error:", err);
+                document.getElementById('loading').innerHTML = 
+                    "Failed to load file.<br><small>Ensure S3 CORS includes HEAD and GET methods.</small>";
+                
+                sendToRN("openFailed", err.message);
+            });
+
+            // Communication with React Native
             rendition.on("relocated", loc => {
-                if (window.ReactNativeWebView) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "pageChange", cfi: loc.start.cfi }));
-                }
+                sendToRN("pageChange", loc.start.cfi);
             });
 
         } catch (e) {
-            document.getElementById('loading').innerText = "Initialization failed.";
+            document.getElementById('loading').innerText = "Critical error during setup.";
+            console.error(e);
         }
     }
 
-    /* --- Controls --- */
+    /* --- 4. UI Controls --- */
     function next() { if(rendition) rendition.next(); }
     function prev() { if(rendition) rendition.prev(); }
+
     function fontSize(delta) { 
         if(!rendition) return;
         fontScale += delta; 
         rendition.themes.fontSize(fontScale + "%"); 
     }
+
     function toggleTheme() {
         if(!rendition) return;
         isDark = !isDark;
-        const theme = isDark ? { body: { background: "#1a1a1a", color: "#eee" }} : { body: { background: "#fff", color: "#000" }};
-        rendition.themes.register(isDark ? "dark" : "light", theme);
-        rendition.themes.select(isDark ? "dark" : "light");
+        const themeName = isDark ? "dark" : "light";
+        const themeConfig = isDark 
+            ? { body: { background: "#1a1a1a", color: "#eee" }} 
+            : { body: { background: "#ffffff", color: "#000000" }};
+            
+        rendition.themes.register(themeName, themeConfig);
+        rendition.themes.select(themeName);
     }
+
+    /* --- 5. Bridge for Webview --- */
+    function sendToRN(type, data) {
+        if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type, data }));
+        }
+    }
+
+    // Debugging: Global error listener
+    window.onerror = function (msg, url, line) {
+        sendToRN("jsError", { msg, url, line });
+    };
 </script>
+
 </body>
 </html>
