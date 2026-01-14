@@ -1,185 +1,102 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>EPUB Reader</title>
+    <link rel="icon" href="data:,">
 
-<title>EPUB Reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
 
-<!-- ✅ Fix favicon 404 -->
-<link rel="icon" href="data:,">
-
-<!-- 🔥 REQUIRED: JSZip (EPUB unzip ke liye) -->
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-
-<!-- EPUB.js -->
-<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
-
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-  background: #f5f5f5;
-  font-family: sans-serif;
-}
-
-#toolbar {
-  height: 48px;
-  background: #222;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-}
-
-#toolbar button {
-  background: #444;
-  color: white;
-  border: none;
-  padding: 6px 10px;
-  border-radius: 4px;
-}
-
-#viewer {
-  height: calc(100% - 48px);
-  width: 100%;
-}
-</style>
+    <style>
+        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; background: #f5f5f5; font-family: system-ui; }
+        #toolbar { height: 50px; background: #222; display: flex; align-items: center; justify-content: space-around; padding: 0 10px; z-index: 100; }
+        #toolbar button { background: #444; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+        #viewer { flex-grow: 1; width: 100%; position: relative; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; }
+    </style>
 </head>
-
 <body>
 
 <div id="toolbar">
-  <button onclick="prev()">◀</button>
-  <button onclick="next()">▶</button>
-  <button onclick="toggleTheme()">🌓</button>
-  <button onclick="fontSize(-10)">A−</button>
-  <button onclick="fontSize(10)">A+</button>
+    <button onclick="prev()">◀ Prev</button>
+    <button onclick="fontSize(-10)">A−</button>
+    <button onclick="toggleTheme()">🌓</button>
+    <button onclick="fontSize(10)">A+</button>
+    <button onclick="next()">Next ▶</button>
 </div>
 
+<div id="loading">Loading book...</div>
 <div id="viewer"></div>
 
 <script>
-/* ------------------ GLOBAL ERROR DEBUG ------------------ */
-window.onerror = function (msg, url, line, col, error) {
-  if (window.ReactNativeWebView) {
-    window.ReactNativeWebView.postMessage(
-      JSON.stringify({
-        type: "jsError",
-        msg,
-        url,
-        line,
-        col
-      })
-    );
-  }
-};
+    // 1. Get URL from Search Params
+    const params = new URLSearchParams(window.location.search);
+    const rawUrl = params.get("url");
 
-/* ------------------ PARAM ------------------ */
-function getParam(name) {
-  return new URLSearchParams(window.location.search).get(name);
-}
-
-const rawUrl = getParam("url");
-
-if (!rawUrl) {
-  alert("EPUB URL missing");
-}
-
-/* 🔥 REQUIRED */
-const epubUrl = decodeURIComponent(rawUrl);
-
-/* ------------------ EPUB ------------------ */
-let book = ePub(epubUrl, {
-  openAs: "binary"
-});
-
-let rendition = book.renderTo("viewer", {
-  width: "100%",
-  height: "100%",
-  flow: "paginated",
-  spread: "always"
-});
-
-/* ------------------ DEBUG EVENTS ------------------ */
-book.on("opened", () => {
-  console.log("EPUB opened");
-});
-
-book.on("openFailed", err => {
-  if (window.ReactNativeWebView) {
-    window.ReactNativeWebView.postMessage(
-      JSON.stringify({
-        type: "openFailed",
-        error: err?.message || err
-      })
-    );
-  }
-});
-
-/* ------------------ START RENDER ------------------ */
-book.ready
-  .then(() => {
-    console.log("Book ready");
-    return rendition.display();
-  })
-  .catch(err => {
-    if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(
-        JSON.stringify({
-          type: "readyFailed",
-          error: err?.message || err
-        })
-      );
+    if (!rawUrl) {
+        document.getElementById('loading').innerText = "Error: No EPUB URL provided.";
+    } else {
+        const epubUrl = decodeURIComponent(rawUrl);
+        initReader(epubUrl);
     }
-  });
 
-/* ------------------ THEME ------------------ */
-let fontScale = 100;
-let isDark = false;
+    let book, rendition;
+    let fontScale = 100;
+    let isDark = false;
 
-rendition.themes.register("dark", {
-  body: { background: "#121212", color: "#eaeaea" }
-});
+    function initReader(url) {
+        // Initialize Book
+        // Note: If the URL is from a server without CORS, this will still fail.
+        book = ePub(url); 
+        rendition = book.renderTo("viewer", {
+            width: "100%",
+            height: "100%",
+            flow: "paginated", // Use 'scrolled' for vertical scrolling
+            manager: "default"
+        });
 
-rendition.themes.register("light", {
-  body: { background: "#ffffff", color: "#000000" }
-});
+        const display = rendition.display();
 
-function toggleTheme() {
-  isDark = !isDark;
-  rendition.themes.select(isDark ? "dark" : "light");
-}
+        display.then(() => {
+            document.getElementById('loading').style.display = 'none';
+            console.log("Rendered");
+        });
 
-function fontSize(delta) {
-  fontScale += delta;
-  rendition.themes.fontSize(fontScale + "%");
-}
+        // Error Handling
+        book.ready.catch(err => {
+            document.getElementById('loading').innerText = "Failed to load EPUB. Check CORS or URL.";
+            sendToRN("error", err.message);
+        });
+    }
 
-/* ------------------ NAV ------------------ */
-function next() {
-  rendition.next();
-}
+    /* --- Controls --- */
+    function next() { rendition.next(); }
+    function prev() { rendition.prev(); }
 
-function prev() {
-  rendition.prev();
-}
+    function toggleTheme() {
+        isDark = !isDark;
+        const theme = isDark ? { body: { background: "#121212", color: "#eee" }} : { body: { background: "#fff", color: "#000" }};
+        rendition.themes.register(isDark ? "dark" : "light", theme);
+        rendition.themes.select(isDark ? "dark" : "light");
+    }
 
-/* ------------------ RN COMM ------------------ */
-rendition.on("relocated", loc => {
-  if (window.ReactNativeWebView) {
-    window.ReactNativeWebView.postMessage(
-      JSON.stringify({
-        type: "pageChange",
-        cfi: loc.start.cfi
-      })
-    );
-  }
-});
+    function fontSize(delta) {
+        fontScale += delta;
+        rendition.themes.fontSize(fontScale + "%");
+    }
+
+    /* --- Communication with React Native --- */
+    function sendToRN(type, data) {
+        if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type, data }));
+        }
+    }
+
+    rendition.on("relocated", loc => {
+        sendToRN("pageChange", loc.start.cfi);
+    });
 </script>
-
 </body>
 </html>
