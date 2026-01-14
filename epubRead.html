@@ -40,10 +40,6 @@ html, body {
   height: calc(100% - 48px);
   width: 100%;
 }
-
-.dark {
-  background: #121212 !important;
-}
 </style>
 </head>
 
@@ -60,14 +56,25 @@ html, body {
 <div id="viewer"></div>
 
 <script>
+/* ------------------ PARAM ------------------ */
 function getParam(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
-const epubUrl = getParam("url");
-if (!epubUrl) alert("EPUB URL missing");
+const rawUrl = getParam("url");
 
-let book = ePub(epubUrl);
+if (!rawUrl) {
+  alert("EPUB URL missing");
+}
+
+/* 🔥 VERY IMPORTANT */
+const epubUrl = decodeURIComponent(rawUrl);
+
+/* ------------------ EPUB ------------------ */
+let book = ePub(epubUrl, {
+  openAs: "binary"
+});
+
 let rendition = book.renderTo("viewer", {
   width: "100%",
   height: "100%",
@@ -75,27 +82,48 @@ let rendition = book.renderTo("viewer", {
   spread: "always"
 });
 
+/* ------------------ ERROR HANDLING ------------------ */
+book.on("openFailed", err => {
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({ type: "openFailed", error: err.message || err })
+    );
+  }
+});
+
+book.ready.then(() => {
+  rendition.display();
+}).catch(err => {
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({ type: "readyFailed", error: err.message || err })
+    );
+  }
+});
+
+/* ------------------ THEME ------------------ */
 let fontScale = 100;
 let isDark = false;
 
-rendition.display();
-
-/* THEME */
 rendition.themes.register("dark", {
-  body: {
-    background: "#121212",
-    color: "#eaeaea"
-  }
+  body: { background: "#121212", color: "#eaeaea" }
 });
 
 rendition.themes.register("light", {
-  body: {
-    background: "#ffffff",
-    color: "#000000"
-  }
+  body: { background: "#ffffff", color: "#000000" }
 });
 
-/* CONTROLS */
+function toggleTheme() {
+  isDark = !isDark;
+  rendition.themes.select(isDark ? "dark" : "light");
+}
+
+function fontSize(delta) {
+  fontScale += delta;
+  rendition.themes.fontSize(fontScale + "%");
+}
+
+/* ------------------ NAV ------------------ */
 function next() {
   rendition.next();
 }
@@ -104,23 +132,13 @@ function prev() {
   rendition.prev();
 }
 
-function fontSize(delta) {
-  fontScale += delta;
-  rendition.themes.fontSize(fontScale + "%");
-}
-
-function toggleTheme() {
-  isDark = !isDark;
-  rendition.themes.select(isDark ? "dark" : "light");
-}
-
-/* RN COMMUNICATION */
-rendition.on("relocated", location => {
+/* ------------------ RN COMM ------------------ */
+rendition.on("relocated", loc => {
   if (window.ReactNativeWebView) {
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
         type: "pageChange",
-        cfi: location.start.cfi
+        cfi: loc.start.cfi
       })
     );
   }
