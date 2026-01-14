@@ -15,6 +15,7 @@
             margin: 0; padding: 0; height: 100vh; 
             display: flex; flex-direction: column; 
             background: #f5f5f5; font-family: system-ui, -apple-system, sans-serif; 
+            overflow: hidden;
         }
         #toolbar { 
             height: 50px; background: #222; 
@@ -28,6 +29,12 @@
         }
         #toolbar button:active { background: #666; }
         #viewer { flex-grow: 1; width: 100%; position: relative; background: white; }
+        
+        /* --- Animation Styles --- */
+        .epub-view {
+            transition: transform 0.4s ease-in-out, opacity 0.4s ease-in-out !important;
+        }
+
         #loading { 
             position: absolute; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); color: #666; 
@@ -55,7 +62,7 @@
     let fontScale = 100;
     let isDark = false;
 
-    /* --- 2. URL Processing & Cache Busting --- */
+    /* --- 2. URL Processing --- */
     const params = new URLSearchParams(window.location.search);
     let epubUrl = params.get("url");
 
@@ -63,58 +70,59 @@
         document.getElementById('loading').innerText = "Error: No EPUB URL provided.";
     } else {
         epubUrl = decodeURIComponent(epubUrl);
-        
-        // Add a timestamp to bypass browser CORS cache
         const cacheBuster = epubUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
         const finalUrl = epubUrl + cacheBuster;
-
         initReader(finalUrl);
     }
 
     /* --- 3. Reader Initialization --- */
     function initReader(url) {
         try {
-            // Initialize book immediately to prevent ReferenceError
             book = ePub(url);
             
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
                 flow: "paginated",
-                manager: "default"
+                manager: "default",
+                // Enables the built-in sliding/fading transition
+                transition: "fade" 
             });
 
-            // Start Rendering
+            // Smooth transition hook
+            rendition.on("render", (view) => {
+                const el = view.element;
+                el.style.transition = "transform 0.4s ease-in-out, opacity 0.4s ease-in-out";
+            });
+
             const display = rendition.display();
 
             display.then(() => {
                 document.getElementById('loading').style.display = 'none';
-                console.log("Book displayed successfully");
             });
 
-            // Handle Loading Errors (usually CORS or File issues)
             book.ready.catch(err => {
-                console.error("Reader Error:", err);
-                document.getElementById('loading').innerHTML = 
-                    "Failed to load file.<br><small>Ensure S3 CORS includes HEAD and GET methods.</small>";
-                
+                document.getElementById('loading').innerHTML = "Failed to load file.";
                 sendToRN("openFailed", err.message);
             });
 
-            // Communication with React Native
             rendition.on("relocated", loc => {
                 sendToRN("pageChange", loc.start.cfi);
             });
 
         } catch (e) {
             document.getElementById('loading').innerText = "Critical error during setup.";
-            console.error(e);
         }
     }
 
     /* --- 4. UI Controls --- */
-    function next() { if(rendition) rendition.next(); }
-    function prev() { if(rendition) rendition.prev(); }
+    function next() { 
+        if(rendition) rendition.next(); 
+    }
+    
+    function prev() { 
+        if(rendition) rendition.prev(); 
+    }
 
     function fontSize(delta) { 
         if(!rendition) return;
@@ -141,7 +149,6 @@
         }
     }
 
-    // Debugging: Global error listener
     window.onerror = function (msg, url, line) {
         sendToRN("jsError", { msg, url, line });
     };
