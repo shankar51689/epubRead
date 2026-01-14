@@ -27,38 +27,45 @@
             font-size: 14px;
         }
         #toolbar button:active { background: #666; }
+
         #viewer { 
             flex-grow: 1; 
             width: 100%; 
             position: relative; 
             background: white; 
             perspective: 1200px;
-        }
-        #loading { 
-            position: absolute; top: 50%; left: 50%; 
-            transform: translate(-50%, -50%); color: #666; 
-            font-weight: bold; text-align: center;
+            transform-style: preserve-3d;
         }
 
-        /* ===== PAGE CURL ANIMATION ===== */
-        .page-curl-next {
-            animation: curlNext 0.45s ease forwards;
+        #loading { 
+            position: absolute; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            color: #666; 
+            font-weight: bold; 
+            text-align: center;
+        }
+
+        /* ===== WORKING PAGE CURL (CONTAINER BASED) ===== */
+        #viewer.curl-next {
+            animation: curlNext 0.45s ease;
             transform-origin: right center;
         }
 
-        .page-curl-prev {
-            animation: curlPrev 0.45s ease forwards;
+        #viewer.curl-prev {
+            animation: curlPrev 0.45s ease;
             transform-origin: left center;
         }
 
         @keyframes curlNext {
-            0% { transform: rotateY(0deg); }
-            100% { transform: rotateY(-18deg); }
+            0%   { transform: rotateY(0deg); }
+            100% { transform: rotateY(-12deg); }
         }
 
         @keyframes curlPrev {
-            0% { transform: rotateY(0deg); }
-            100% { transform: rotateY(18deg); }
+            0%   { transform: rotateY(0deg); }
+            100% { transform: rotateY(12deg); }
         }
     </style>
 </head>
@@ -82,20 +89,19 @@
     let fontScale = 100;
     let isDark = false;
 
-    /* --- PAGE CURL HELPER --- */
+    /* --- PAGE CURL HELPER (FIXED) --- */
     function applyPageCurl(direction) {
-        const iframe = document.querySelector("#viewer iframe");
-        if (!iframe) return;
+        const viewer = document.getElementById("viewer");
+        if (!viewer) return;
 
-        const doc = iframe.contentDocument;
-        const html = doc.documentElement;
+        viewer.classList.remove("curl-next", "curl-prev");
+        void viewer.offsetWidth; // force reflow
 
-        html.classList.remove("page-curl-next", "page-curl-prev");
-        void html.offsetWidth; // force reflow
+        viewer.classList.add(direction === "next" ? "curl-next" : "curl-prev");
 
-        html.classList.add(
-            direction === "next" ? "page-curl-next" : "page-curl-prev"
-        );
+        setTimeout(() => {
+            viewer.classList.remove("curl-next", "curl-prev");
+        }, 450);
     }
 
     /* --- 2. URL Processing & Cache Busting --- */
@@ -141,7 +147,7 @@
         }
     }
 
-    /* --- 4. UI Controls (UPDATED) --- */
+    /* --- 4. UI Controls --- */
     function next() {
         if (!rendition) return;
         applyPageCurl("next");
