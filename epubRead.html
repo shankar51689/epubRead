@@ -4,32 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Realistic 3D Page Curl Reader</title>
-    
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
 
     <style>
-        body { 
-            margin: 0; padding: 0; height: 100vh; 
-            display: flex; flex-direction: column; 
-            background: #1a1a1a; font-family: sans-serif; 
+        body {
+            margin: 0; padding: 0; height: 100vh;
+            display: flex; flex-direction: column;
+            background: #1a1a1a; font-family: sans-serif;
             overflow: hidden;
         }
-        #toolbar { 
-            height: 50px; background: #222; 
-            display: flex; align-items: center; 
-            justify-content: space-around; padding: 0 10px; z-index: 2000;
+
+        #toolbar {
+            height: 50px; background: #222;
+            display: flex; align-items: center;
+            justify-content: space-around;
+            padding: 0 10px; z-index: 2000;
             border-bottom: 1px solid #333;
         }
-        #toolbar button { 
-            background: #444; color: white; border: none; 
-            padding: 8px 12px; border-radius: 4px; cursor: pointer; 
+
+        #toolbar button {
+            background: #444; color: white; border: none;
+            padding: 8px 12px; border-radius: 4px;
+            cursor: pointer;
         }
 
         #book-viewport {
             flex-grow: 1;
             position: relative;
-            perspective: 3000px; 
+            perspective: 3000px;
             background: #252525;
             overflow: hidden;
             display: flex;
@@ -37,16 +41,15 @@
             align-items: center;
         }
 
-        /* Current Page Container */
-        #viewer { 
-            width: 100%; height: 100%;
+        #viewer {
+            width: 100%;
+            height: 100%;
             background: white;
             z-index: 10;
             position: absolute;
-            transform-origin: left center;
         }
 
-        /* Page Peel Overlay (The part that folds) */
+        /* ===== REALISTIC PAGE PEEL ===== */
         #page-peel {
             position: absolute;
             top: 0; right: 0;
@@ -54,38 +57,47 @@
             z-index: 100;
             pointer-events: none;
             display: none;
-            background: #fff;
-            transform-origin: 100% 100%;
-            /* Physical Paper Shadow */
-            box-shadow: -10px 10px 30px rgba(0,0,0,0.3);
+            background: white;
+
+            transform-origin: right center;
+            backface-visibility: hidden;
+
+            box-shadow:
+                -40px 0 60px rgba(0,0,0,0.25),
+                inset -20px 0 30px rgba(0,0,0,0.15);
         }
 
-        /* Internal shadow on the folding page to give it a curve look */
         #peel-gradient {
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, 
-                rgba(255,255,255,0) 0%, 
-                rgba(255,255,255,0) 45%, 
-                rgba(0,0,0,0.05) 50%, 
-                rgba(255,255,255,1) 55%, 
-                rgba(255,255,255,1) 100%);
+            inset: 0;
+            background: linear-gradient(
+                to left,
+                rgba(0,0,0,0.35),
+                rgba(0,0,0,0.15) 20%,
+                rgba(255,255,255,0.6) 60%,
+                rgba(255,255,255,1)
+            );
         }
 
-        /* Shadow cast on the page UNDERNEATH */
         #under-shadow {
             position: absolute;
             top: 0; right: 0;
             width: 100%; height: 100%;
             z-index: 5;
-            background: rgba(0,0,0,0.1);
+            background: rgba(0,0,0,0.25);
             display: none;
             pointer-events: none;
         }
 
-        #loading { position: absolute; color: white; z-index: 20; font-weight: bold; }
+        #loading {
+            position: absolute;
+            color: white;
+            z-index: 20;
+            font-weight: bold;
+        }
     </style>
 </head>
+
 <body>
 
 <div id="toolbar">
@@ -111,7 +123,6 @@
     let fontScale = 100;
     let isDragging = false;
     let startX = 0;
-    let startY = 0;
 
     const peel = document.getElementById('page-peel');
     const viewer = document.getElementById('viewer');
@@ -120,7 +131,9 @@
     function initReader(url) {
         book = ePub(url);
         rendition = book.renderTo("viewer", {
-            width: "100%", height: "100%", flow: "paginated"
+            width: "100%",
+            height: "100%",
+            flow: "paginated"
         });
 
         rendition.display().then(() => {
@@ -132,90 +145,82 @@
     function setupGestures() {
         rendition.on("touchstart", e => {
             startX = e.changedTouches[0].screenX;
-            startY = e.changedTouches[0].screenY;
             isDragging = true;
         });
 
         rendition.on("touchmove", e => {
             if (!isDragging) return;
-            let curX = e.changedTouches[0].screenX;
-            let diffX = startX - curX;
-
-            if (diffX > 10) { // Swiping for next page
-                updateCurl(diffX);
-            }
+            const diffX = startX - e.changedTouches[0].screenX;
+            if (diffX > 10) updateCurl(diffX);
         });
 
         rendition.on("touchend", e => {
             if (!isDragging) return;
             isDragging = false;
-            let endX = e.changedTouches[0].screenX;
-            if (startX - endX > 150) {
-                finishFlip();
-            } else {
-                resetFlip();
-            }
+            const diffX = startX - e.changedTouches[0].screenX;
+            diffX > 150 ? finishFlip() : resetFlip();
         });
     }
 
+    /* ===== REAL BOOK CURL PHYSICS ===== */
     function updateCurl(diffX) {
-        const width = window.innerWidth;
-        const percent = Math.min(diffX / width, 1);
-        
-        peel.style.display = 'block';
-        uShadow.style.display = 'block';
+        const percent = Math.min(Math.max(diffX / window.innerWidth, 0), 1);
 
-        // 1. Diagonal Clip Path for the current page
-        const angle = 45; // Fixed diagonal angle
-        const clipX = 100 - (percent * 150);
-        viewer.style.clipPath = `polygon(0% 0%, ${clipX}% 0%, 0% ${clipX}%, 0% 0%)`;
+        peel.style.display = "block";
+        uShadow.style.display = "block";
 
-        // 2. Realistic Peel Movement
-        // We move the peel layer diagonally to simulate paper folding
-        const translateX = -percent * 100;
-        const rotateZ = percent * -25;
-        peel.style.transform = `translateX(${translateX}%) rotateZ(${rotateZ}deg) scale(1.1)`;
-        
-        // 3. Shadow transparency
-        uShadow.style.opacity = percent;
+        const clip = 100 - percent * 100;
+        viewer.style.clipPath = `polygon(
+            0% 0%,
+            ${clip}% 0%,
+            ${clip}% 100%,
+            0% 100%
+        )`;
+
+        peel.style.transform = `
+            translateX(${-percent * 15}%)
+            rotateY(${-percent * 160}deg)
+            rotateZ(${-percent * 6}deg)
+        `;
+
+        uShadow.style.opacity = percent * 0.7;
     }
 
     function finishFlip() {
-        // Transition to full flip
-        viewer.style.transition = "clip-path 0.5s ease-in";
-        peel.style.transition = "transform 0.5s ease-in";
-        
-        viewer.style.clipPath = `polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)`;
-        peel.style.transform = `translateX(-150%) rotateZ(-45deg)`;
+        viewer.style.transition = "clip-path 0.6s ease";
+        peel.style.transition = "transform 0.6s ease";
+
+        viewer.style.clipPath = "polygon(0 0,0 0,0 100%,0 100%)";
+        peel.style.transform = "translateX(-30%) rotateY(-180deg)";
 
         setTimeout(() => {
             rendition.next();
             clearStyles();
-        }, 500);
+        }, 600);
     }
 
     function resetFlip() {
-        viewer.style.transition = "clip-path 0.3s ease-out";
-        peel.style.transition = "transform 0.3s ease-out";
-        
-        viewer.style.clipPath = "none";
-        peel.style.transform = "translateX(0%) rotateZ(0deg)";
+        viewer.style.transition = "clip-path 0.35s ease-out";
+        peel.style.transition = "transform 0.35s ease-out";
 
-        setTimeout(() => clearStyles(), 300);
+        viewer.style.clipPath = "none";
+        peel.style.transform = "translateX(0) rotateY(0)";
+
+        setTimeout(clearStyles, 350);
     }
 
     function clearStyles() {
         viewer.style.transition = "none";
         peel.style.transition = "none";
-        peel.style.display = 'none';
-        uShadow.style.display = 'none';
+        peel.style.display = "none";
+        uShadow.style.display = "none";
         viewer.style.clipPath = "none";
     }
 
     /* --- Controls --- */
     function next() {
         updateCurl(window.innerWidth / 3);
-        setTimeout(() => finishFlip(), 100);
+        setTimeout(finishFlip, 120);
     }
 
     function prev() {
@@ -227,13 +232,12 @@
         rendition.themes.fontSize(fontScale + "%");
     }
 
-    function toggleTheme() {
-        // Simple theme toggle
-    }
+    function toggleTheme() {}
 
     const params = new URLSearchParams(window.location.search);
-    let url = params.get("url");
+    const url = params.get("url");
     if (url) initReader(decodeURIComponent(url));
 </script>
+
 </body>
 </html>
