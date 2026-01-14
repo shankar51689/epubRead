@@ -1,272 +1,282 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Ultra-Realistic Page Curl</title>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 
-    <style>
-        body { 
-            margin: 0; padding: 0; height: 100vh; 
-            display: flex; flex-direction: column; 
-            background: #222; font-family: system-ui, sans-serif; 
-            overflow: hidden;
-        }
+<title>Realistic Page Curl EPUB</title>
 
-        #toolbar { 
-            height: 50px; background: #111; 
-            display: flex; align-items: center; 
-            justify-content: space-around; z-index: 2000;
-            border-bottom: 1px solid #333;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-        #toolbar button { 
-            background: #333; color: white; border: none; 
-            padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;
-        }
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
 
-        #book-stage {
-            flex-grow: 1;
-            position: relative;
-            background: #333;
-            display: flex; justify-content: center; align-items: center;
-            overflow: hidden;
-            perspective: 2000px; /* Crucial for 3D realism */
-        }
+<style>
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #222;
+    font-family: system-ui, sans-serif;
+}
 
-        /* The Active Page */
-        #viewer { 
-            width: 100%; height: 100%;
-            background: white;
-            position: absolute;
-            z-index: 10;
-            /* Will be clipped diagonally */
-            will-change: clip-path; 
-        }
+#toolbar {
+    height: 48px;
+    background: #111;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    color: white;
+    z-index: 100;
+}
 
-        /* The Back of the Page (The Curl itself) */
-        #curl-overlay {
-            position: absolute;
-            bottom: 0; right: 0;
-            width: 150%; height: 150%; /* Larger to accommodate rotation */
-            z-index: 20;
-            pointer-events: none;
-            display: none;
-            transform-origin: bottom right;
-            
-            /* Complex gradient to simulate the rounded paper cylinder */
-            background: linear-gradient(
-                135deg,
-                transparent 30%,
-                rgba(0,0,0,0.05) 38%,
-                rgba(0,0,0,0.1) 40%,
-                rgba(255,255,255,1) 45%, 
-                #f0f0f0 55%,
-                #ddd 60%,
-                transparent 70%
-            );
-            
-            /* Drop shadow for the lifted paper edge */
-            filter: drop-shadow(-5px 5px 15px rgba(0,0,0,0.3));
-            will-change: transform;
-        }
+#toolbar button {
+    background: #333;
+    border: none;
+    color: white;
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 14px;
+}
 
-        /* The Shadow cast on the Next Page */
-        #drop-shadow {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 5;
-            pointer-events: none;
-            background: linear-gradient(to left, rgba(0,0,0,0.4), transparent 30%);
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
+#stage {
+    position: relative;
+    width: 100%;
+    height: calc(100% - 48px);
+    perspective: 2000px;
+    overflow: hidden;
+    background: #444;
+    transform-style: preserve-3d;
+}
 
-        #loading { position: absolute; color: #aaa; z-index: 50; top: 50%; left: 50%; transform: translate(-50%,-50%); }
-    </style>
+#viewer {
+    position: absolute;
+    inset: 0;
+    background: white;
+    z-index: 10;
+    will-change: clip-path;
+    backface-visibility: hidden;
+}
+
+/* Curl back */
+#curl {
+    position: absolute;
+    width: 160%;
+    height: 160%;
+    right: 0;
+    bottom: 0;
+    transform-origin: bottom right;
+    z-index: 20;
+    pointer-events: none;
+    display: none;
+    will-change: transform;
+    background:
+        linear-gradient(
+            90deg,
+            rgba(255,255,255,0.95) 0%,
+            #f5f5f5 30%,
+            #e0e0e0 50%,
+            #bdbdbd 70%,
+            rgba(0,0,0,0.35) 100%
+        );
+    box-shadow:
+        inset 25px 0 25px rgba(255,255,255,0.4),
+        inset -25px 0 30px rgba(0,0,0,0.25),
+        -10px 10px 20px rgba(0,0,0,0.35);
+}
+
+/* Shadow on next page */
+#shadow {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+    background: linear-gradient(to left, rgba(0,0,0,0.45), transparent 40%);
+    opacity: 0;
+}
+
+#corner-shadow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 6;
+    background: radial-gradient(
+        circle at 100% 100%,
+        rgba(0,0,0,0.5),
+        transparent 65%
+    );
+    opacity: 0;
+}
+</style>
 </head>
+
 <body>
 
 <div id="toolbar">
     <button onclick="prev()">◀ Prev</button>
-    <button onclick="fontSize(-10)">A−</button>
-    <button onclick="toggleTheme()">🌓</button>
-    <button onclick="fontSize(10)">A+</button>
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Loading Book...</div>
-
-<div id="book-stage">
+<div id="stage">
     <div id="viewer"></div>
-    <div id="drop-shadow"></div>
-    <div id="curl-overlay"></div>
+    <div id="shadow"></div>
+    <div id="corner-shadow"></div>
+    <div id="curl"></div>
 </div>
 
 <script>
-    let book, rendition;
-    let fontScale = 100;
-    
-    // Physics variables
-    let isDragging = false;
-    let startX = 0;
-    let currentX = 0;
-    let width = window.innerWidth;
+let book, rendition;
 
-    const viewer = document.getElementById('viewer');
-    const curl = document.getElementById('curl-overlay');
-    const shadow = document.getElementById('drop-shadow');
+let isDragging = false;
+let startX = 0;
+let currentX = 0;
+let width = window.innerWidth;
+let lastTime = 0;
+let velocity = 0;
 
-    function initReader(url) {
-        book = ePub(url);
-        rendition = book.renderTo("viewer", {
-            width: "100%", height: "100%", flow: "paginated"
-        });
+const viewer = document.getElementById("viewer");
+const curl = document.getElementById("curl");
+const shadow = document.getElementById("shadow");
+const cornerShadow = document.getElementById("corner-shadow");
 
-        rendition.display().then(() => {
-            document.getElementById('loading').style.display = 'none';
-            setupGestures();
-        });
-    }
+function init(url) {
+    book = ePub(url);
+    rendition = book.renderTo("viewer", {
+        width: "100%",
+        height: "100%",
+        flow: "paginated"
+    });
 
-    function setupGestures() {
-        rendition.on("touchstart", e => {
-            startX = e.changedTouches[0].screenX;
-            currentX = startX;
-            isDragging = true;
-            width = window.innerWidth;
-            
-            // Kill transitions for instant 1:1 tracking
-            viewer.style.transition = 'none';
-            curl.style.transition = 'none';
-            shadow.style.transition = 'none';
-        });
+    rendition.display();
+    setupGestures();
+}
 
-        rendition.on("touchmove", e => {
-            if (!isDragging) return;
-            currentX = e.changedTouches[0].screenX;
-            const delta = startX - currentX;
+function setupGestures() {
+    rendition.on("touchstart", e => {
+        startX = e.changedTouches[0].screenX;
+        currentX = startX;
+        isDragging = true;
+        lastTime = performance.now();
 
-            // Only animate if dragging left (Next Page)
-            if (delta > 0) {
-                requestAnimationFrame(() => updateGeometry(delta));
-            }
-        });
+        viewer.style.transition = "none";
+        curl.style.transition = "none";
+        shadow.style.transition = "none";
+        cornerShadow.style.transition = "none";
+    });
 
-        rendition.on("touchend", e => {
-            if (!isDragging) return;
-            isDragging = false;
-            
-            const delta = startX - currentX;
-            const threshold = width * 0.3; // Flip if dragged 30% across
+    rendition.on("touchmove", e => {
+        if (!isDragging) return;
 
-            // Re-enable transitions for the "Snap" effect
-            // cubic-bezier(0.25, 1, 0.5, 1) creates a realistic paper snap
-            const transitionCSS = "all 0.5s cubic-bezier(0.25, 1, 0.5, 1)";
-            viewer.style.transition = "clip-path 0.5s cubic-bezier(0.25, 1, 0.5, 1)";
-            curl.style.transition = "transform 0.5s cubic-bezier(0.25, 1, 0.5, 1)";
-            shadow.style.transition = "opacity 0.5s";
+        const now = performance.now();
+        currentX = e.changedTouches[0].screenX;
+        velocity = (startX - currentX) / (now - lastTime + 1);
+        lastTime = now;
 
-            if (delta > threshold) {
-                completeTurn();
-            } else {
-                cancelTurn();
-            }
-        });
-    }
+        const fingerDistance = width - currentX;
+        const progress = Math.min(Math.max(fingerDistance / width, 0), 1.3);
 
-    function updateGeometry(delta) {
-        // Calculate progress (0 to 1)
-        // We cap it at 1.5 to allow over-drag
-        const progress = Math.min(Math.max(delta / width, 0), 1.5);
-        
-        if (progress <= 0) return;
+        if (progress > 0) {
+            requestAnimationFrame(() => updateCurl(progress));
+        }
+    });
 
-        curl.style.display = 'block';
+    rendition.on("touchend", () => {
+        if (!isDragging) return;
+        isDragging = false;
 
-        // 1. CALCULATE THE CLIP PATH (The Page Cut)
-        // We create a diagonal line that moves top-left as you drag
-        const clipBottom = 100 - (progress * 120); // Moves bottom point left
-        const clipRight = 100 - (progress * 150);  // Moves right point up
-        
-        // This polygon cuts the bottom-right corner
-        viewer.style.clipPath = `polygon(0% 0%, 100% 0%, 100% ${clipRight}%, ${clipBottom}% 100%, 0% 100%)`;
+        const fingerDistance = width - currentX;
+        const progress = fingerDistance / width;
 
-        // 2. CALCULATE THE CURL (The White Backing)
-        // We translate it left/up and rotate it to match the clip line
-        const rotate = -45 * Math.min(progress, 1);
-        const translateX = -(progress * 100);
-        const translateY = -(progress * 20);
-        
-        // Adding skewX makes the paper look like it's bending, not just rotating
-        curl.style.transform = `translateX(${translateX}%) translateY(${translateY}%) rotateZ(${rotate}deg) skewX(-15deg)`;
+        enableSnap();
 
-        // 3. SHADOW
-        shadow.style.opacity = Math.min(progress, 0.5);
-    }
+        if (progress > 0.35 || velocity > 1.2) {
+            completeTurn();
+        } else {
+            cancelTurn();
+        }
+    });
+}
 
-    function completeTurn() {
-        // Animate fully off screen
-        viewer.style.clipPath = `polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)`;
-        curl.style.transform = `translateX(-150%) translateY(-50%) rotateZ(-90deg)`;
-        shadow.style.opacity = 0;
+function updateCurl(progress) {
+    curl.style.display = "block";
 
-        setTimeout(() => {
-            rendition.next();
-            resetState();
-        }, 500);
-    }
+    const clipX = 100 - progress * 140;
+    const clipY = 100 - progress * 120;
 
-    function cancelTurn() {
-        // Snap back to original state
-        viewer.style.clipPath = `polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)`;
-        curl.style.transform = `translateX(0) translateY(0) rotateZ(0deg)`;
-        shadow.style.opacity = 0;
+    viewer.style.clipPath =
+        `polygon(0% 0%, 100% 0%, 100% ${clipY}%, ${clipX}% 100%, 0% 100%)`;
 
-        setTimeout(() => {
-            resetState();
-        }, 500);
-    }
+    const rotateY = -Math.min(progress * 120, 120);
+    const rotateZ = -15 * progress;
+    const depth = 80 * progress;
 
-    function resetState() {
-        curl.style.display = 'none';
-        viewer.style.clipPath = 'none';
-        // Remove transitions so next drag is instant
-        viewer.style.transition = 'none';
-        curl.style.transition = 'none';
-    }
+    curl.style.transform = `
+        translateX(${-progress * 100}%)
+        translateY(${-progress * 35}%)
+        rotateY(${rotateY}deg)
+        rotateZ(${rotateZ}deg)
+        translateZ(${depth}px)
+    `;
 
-    /* --- Controls --- */
-    function next() {
-        // Simulate a swipe for button click
-        viewer.style.transition = "clip-path 0.6s ease-in-out";
-        curl.style.transition = "transform 0.6s ease-in-out";
-        curl.style.display = 'block';
-        
-        setTimeout(() => {
-            viewer.style.clipPath = `polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)`;
-            curl.style.transform = `translateX(-150%) translateY(-50%) rotateZ(-90deg)`;
-            setTimeout(() => { rendition.next(); resetState(); }, 600);
-        }, 10);
-    }
+    shadow.style.opacity = Math.min(progress * 0.5, 0.4);
+    cornerShadow.style.opacity = Math.min(progress * 0.8, 0.6);
+}
 
-    function prev() { rendition.prev(); }
-    
-    function fontSize(delta) {
-        fontScale = Math.max(40, Math.min(250, fontScale + delta));
-        rendition.themes.fontSize(fontScale + "%");
-    }
+function enableSnap() {
+    viewer.style.transition = "clip-path 0.55s cubic-bezier(.25,1,.5,1)";
+    curl.style.transition = "transform 0.55s cubic-bezier(.25,1,.5,1)";
+    shadow.style.transition = "opacity 0.55s";
+    cornerShadow.style.transition = "opacity 0.55s";
+}
 
-    function toggleTheme() {
-        // Theme Toggle Logic
-    }
+function completeTurn() {
+    viewer.style.clipPath =
+        "polygon(0% 0%,0% 0%,0% 100%,0% 100%)";
 
-    const params = new URLSearchParams(window.location.search);
-    let url = params.get("url");
-    if (url) initReader(decodeURIComponent(url));
+    curl.style.transform =
+        "translateX(-160%) translateY(-60%) rotateY(-140deg)";
+
+    shadow.style.opacity = 0;
+    cornerShadow.style.opacity = 0;
+
+    setTimeout(() => {
+        rendition.next();
+        reset();
+    }, 550);
+}
+
+function cancelTurn() {
+    viewer.style.clipPath =
+        "polygon(0% 0%,100% 0%,100% 100%,0% 100%)";
+
+    curl.style.transform = "none";
+    shadow.style.opacity = 0;
+    cornerShadow.style.opacity = 0;
+
+    setTimeout(reset, 550);
+}
+
+function reset() {
+    curl.style.display = "none";
+    viewer.style.clipPath = "none";
+    viewer.style.transition = "none";
+    curl.style.transition = "none";
+}
+
+function next() {
+    enableSnap();
+    curl.style.display = "block";
+    updateCurl(1);
+    setTimeout(completeTurn, 20);
+}
+
+function prev() {
+    rendition.prev();
+}
+
+const params = new URLSearchParams(location.search);
+const url = params.get("url");
+if (url) init(decodeURIComponent(url));
 </script>
+
 </body>
 </html>
