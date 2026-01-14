@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>High-Fidelity 3D Page Flip</title>
+    <title>Realistic 3D Page Curl Reader</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
@@ -12,70 +12,71 @@
         body { 
             margin: 0; padding: 0; height: 100vh; 
             display: flex; flex-direction: column; 
-            background: #121212; font-family: sans-serif; 
+            background: #2c2c2c; font-family: sans-serif; 
             overflow: hidden;
         }
         #toolbar { 
             height: 50px; background: #1a1a1a; 
             display: flex; align-items: center; 
-            justify-content: space-around; z-index: 2000;
+            justify-content: space-around; padding: 0 10px; z-index: 1000;
             border-bottom: 1px solid #333;
         }
         #toolbar button { 
-            background: #333; color: white; border: none; 
-            padding: 8px 15px; border-radius: 5px; cursor: pointer; 
+            background: #444; color: white; border: none; 
+            padding: 8px 12px; border-radius: 4px; cursor: pointer; 
         }
 
         #book-viewport {
             flex-grow: 1;
             position: relative;
-            perspective: 3000px; /* Strong depth for 3D effect */
-            background: #222;
-            display: flex; justify-content: center; align-items: center;
+            perspective: 2500px;
+            background: #3a3a3a;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
-        /* The main container for the book content */
         #viewer { 
             width: 100%; height: 100%;
             background: white;
             z-index: 5;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
             position: absolute;
-            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            pointer-events: auto;
         }
 
-        /* The Curling Page (The part that you see folding) */
-        #page-curl {
-            position: absolute;
-            top: 0; right: 0;
-            width: 120%; height: 120%; /* Slightly larger to cover diagonals */
-            z-index: 100;
-            pointer-events: none;
-            display: none;
-            transform-origin: bottom right;
-            /* Gradient simulating the curved back of a page with highlights */
-            background: linear-gradient(135deg, 
-                rgba(255,255,255,0) 35%, 
-                rgba(0,0,0,0.1) 42%, 
-                rgba(255,255,255,1) 45%, 
-                rgba(240,240,240,1) 50%, 
-                rgba(200,200,200,1) 55%, 
-                rgba(0,0,0,0.05) 60%,
-                rgba(255,255,255,0) 65%
-            );
-        }
-
-        /* Shadow cast on the page beneath the fold */
-        #fold-shadow {
+        /* The Curling Page Overlay (The fold itself) */
+        #page-peel {
             position: absolute;
             top: 0; right: 0;
             width: 100%; height: 100%;
-            z-index: 8;
-            background: radial-gradient(circle at bottom right, rgba(0,0,0,0.4) 0%, transparent 70%);
+            z-index: 100;
+            pointer-events: none;
+            display: none;
+            /* Gradient to simulate the back of a solid white page */
+            background: linear-gradient(135deg, 
+                rgba(255,255,255,0) 45%, 
+                rgba(0,0,0,0.05) 48%, 
+                rgba(230,230,230,1) 50%, 
+                rgba(255,255,255,1) 52%, 
+                rgba(255,255,255,1) 100%
+            );
+            box-shadow: -15px 15px 40px rgba(0,0,0,0.4);
+        }
+
+        /* Shadow on the page underneath the fold */
+        #under-shadow {
+            position: absolute;
+            top: 0; right: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            background: linear-gradient(135deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0) 60%);
             display: none;
             pointer-events: none;
         }
 
-        #loading { position: absolute; color: #888; z-index: 20; }
+        #loading { position: absolute; color: white; z-index: 20; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -88,22 +89,23 @@
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Initialising 3D Reader...</div>
+<div id="loading">Opening Book...</div>
 
 <div id="book-viewport">
     <div id="viewer"></div>
-    <div id="fold-shadow"></div>
-    <div id="page-curl"></div>
+    <div id="under-shadow"></div>
+    <div id="page-peel"></div>
 </div>
 
 <script>
     let book, rendition;
     let fontScale = 100;
-    let isDragging = false;
+    let isDark = false;
     let startX = 0, startY = 0;
+    let isDragging = false;
 
-    const curl = document.getElementById('page-curl');
-    const shadow = document.getElementById('fold-shadow');
+    const peel = document.getElementById('page-peel');
+    const uShadow = document.getElementById('under-shadow');
     const viewer = document.getElementById('viewer');
 
     function initReader(url) {
@@ -114,123 +116,137 @@
 
         rendition.display().then(() => {
             document.getElementById('loading').style.display = 'none';
-            setupRealisticGestures();
+            applyStyles();
+            setupCurlEffect();
         });
     }
 
-    function setupRealisticGestures() {
+    function setupCurlEffect() {
         rendition.on("touchstart", e => {
             startX = e.changedTouches[0].screenX;
             startY = e.changedTouches[0].screenY;
             isDragging = true;
-            // Clear any lingering transitions
-            viewer.style.transition = "none";
-            curl.style.transition = "none";
         });
 
         rendition.on("touchmove", e => {
             if (!isDragging) return;
+            
             let curX = e.changedTouches[0].screenX;
             let curY = e.changedTouches[0].screenY;
             
-            let dx = startX - curX;
-            let dy = startY - curY;
+            // Drag distance from bottom right
+            let diffX = startX - curX;
+            let diffY = startY - curY;
 
-            if (dx > 10) { 
-                requestAnimationFrame(() => applyCurlEffect(dx, dy));
+            if (diffX > 20) { // Start peel if dragged left
+                requestAnimationFrame(() => updateCurl(diffX, diffY));
             }
         });
 
         rendition.on("touchend", e => {
             if (!isDragging) return;
             isDragging = false;
-            let finalX = e.changedTouches[0].screenX;
+            let endX = e.changedTouches[0].screenX;
             
-            if (startX - finalX > 150) {
-                finishPageTurn();
+            if (startX - endX > 150) {
+                completeFlip();
             } else {
-                cancelPageTurn();
+                cancelFlip();
             }
         });
     }
 
-    function applyCurlEffect(dx, dy) {
+    function updateCurl(diffX, diffY) {
         const width = window.innerWidth;
-        const height = window.innerHeight;
-        const progress = Math.min(dx / width, 1.2);
-
-        curl.style.display = 'block';
-        shadow.style.display = 'block';
-
-        // 1. Diagonal Clipping: Creating the "peel" line
-        // We calculate a triangle that grows from the bottom right
-        let clipX = 100 - (progress * 130);
-        let clipY = 100 - (progress * 130);
-        viewer.style.clipPath = `polygon(0% 0%, 100% 0%, 100% ${clipY}%, ${clipX}% 100%, 0% 100%)`;
-
-        // 2. Transforming the Curl Overlay
-        // Move and rotate the curl layer to match the clipped edge
-        // Skew and Rotate are key for the "curved paper" look
-        let rotation = progress * -40;
-        let tx = -progress * 100;
-        let ty = -progress * 20;
+        const progress = Math.min(diffX / width, 1);
         
-        curl.style.transform = `translateX(${tx}%) translateY(${ty}%) rotateZ(${rotation}deg) skewX(${progress * 10}deg)`;
+        peel.style.display = 'block';
+        uShadow.style.display = 'block';
+
+        // DIAGONAL MATH: Calculating the fold line
+        // progress maps to the corner position
+        let p = progress * 100;
+        let clipP = 100 - (progress * 130); // How much of the original page is cut
         
-        // 3. Shadow intensity
-        shadow.style.opacity = progress;
+        // 1. Clip the current page diagonally (Peeling effect)
+        viewer.style.clipPath = `polygon(0% 0%, ${clipP + 20}% 0%, 0% ${clipP + 20}%, 0% 0%)`;
+
+        // 2. Position the "back" of the turning page
+        // It should follow the diagonal line
+        peel.style.transform = `translateX(${-p}%) rotateZ(${-progress * 25}deg) translateY(${-progress * 10}%)`;
+        peel.style.opacity = 1;
+
+        // 3. Update the shadow on the next page
+        uShadow.style.opacity = progress;
     }
 
-    function finishPageTurn() {
+    function completeFlip() {
         viewer.style.transition = "clip-path 0.5s ease-in, opacity 0.5s";
-        curl.style.transition = "transform 0.5s ease-in, opacity 0.5s";
+        peel.style.transition = "transform 0.5s ease-in, opacity 0.5s";
         
+        // Final state: page is gone
         viewer.style.clipPath = "polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)";
-        curl.style.transform = "translateX(-150%) rotateZ(-60deg)";
-        curl.style.opacity = "0";
+        peel.style.transform = "translateX(-150%) rotateZ(-45deg)";
+        peel.style.opacity = 0;
 
         setTimeout(() => {
             rendition.next();
-            resetFlipState();
+            resetStyles();
         }, 500);
     }
 
-    function cancelPageTurn() {
-        viewer.style.transition = "clip-path 0.4s cubic-bezier(0.2, 0, 0.2, 1)";
-        curl.style.transition = "transform 0.4s cubic-bezier(0.2, 0, 0.2, 1)";
+    function cancelFlip() {
+        viewer.style.transition = "clip-path 0.3s ease-out";
+        peel.style.transition = "transform 0.3s ease-out";
         
         viewer.style.clipPath = "none";
-        curl.style.transform = "translateX(0%) rotateZ(0deg)";
+        peel.style.transform = "translateX(0%) rotateZ(0deg)";
 
-        setTimeout(() => resetFlipState(), 400);
+        setTimeout(() => {
+            resetStyles();
+        }, 300);
     }
 
-    function resetFlipState() {
+    function resetStyles() {
         viewer.style.transition = "none";
-        curl.style.transition = "none";
+        peel.style.transition = "none";
         viewer.style.clipPath = "none";
-        curl.style.display = 'none';
-        curl.style.opacity = "1";
-        shadow.style.display = 'none';
+        viewer.style.opacity = 1;
+        peel.style.display = 'none';
+        uShadow.style.display = 'none';
     }
 
-    /* --- Extra Controls --- */
+    /* --- Functions --- */
     function next() {
-        applyCurlEffect(window.innerWidth / 4, 0);
-        setTimeout(() => finishPageTurn(), 50);
+        updateCurl(window.innerWidth / 3, 0);
+        setTimeout(() => completeFlip(), 100);
     }
 
     function prev() {
         rendition.prev();
     }
 
+    function applyStyles() {
+        if (!rendition) return;
+        rendition.themes.default({
+            "body": {
+                "font-size": fontScale + "% !important",
+                "background": isDark ? "#1a1a1a" : "#ffffff",
+                "color": isDark ? "#eee" : "#000",
+                "padding": "0 25px !important"
+            }
+        });
+    }
+
     function fontSize(delta) {
-        fontScale = Math.max(40, Math.min(250, fontScale + delta));
-        rendition.themes.fontSize(fontScale + "%");
+        fontScale = Math.min(Math.max(fontScale + delta, 40), 250);
+        applyStyles();
     }
 
     function toggleTheme() {
-        // Theme logic
+        isDark = !isDark;
+        document.body.style.background = isDark ? "#111" : "#2c2c2c";
+        applyStyles();
     }
 
     const params = new URLSearchParams(window.location.search);
