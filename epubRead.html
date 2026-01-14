@@ -12,13 +12,13 @@
         body { 
             margin: 0; padding: 0; height: 100vh; 
             display: flex; flex-direction: column; 
-            background: #2c2c2c; font-family: sans-serif; 
+            background: #1a1a1a; font-family: sans-serif; 
             overflow: hidden;
         }
         #toolbar { 
-            height: 50px; background: #1a1a1a; 
+            height: 50px; background: #222; 
             display: flex; align-items: center; 
-            justify-content: space-around; padding: 0 10px; z-index: 1000;
+            justify-content: space-around; padding: 0 10px; z-index: 2000;
             border-bottom: 1px solid #333;
         }
         #toolbar button { 
@@ -26,53 +26,64 @@
             padding: 8px 12px; border-radius: 4px; cursor: pointer; 
         }
 
-        /* Book Container */
         #book-viewport {
             flex-grow: 1;
             position: relative;
-            perspective: 2000px; /* Depth for 3D */
-            background: #3a3a3a;
+            perspective: 3000px; 
+            background: #252525;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
         }
 
+        /* Current Page Container */
         #viewer { 
             width: 100%; height: 100%;
             background: white;
-            z-index: 1;
-            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            z-index: 10;
             position: absolute;
+            transform-origin: left center;
         }
 
-        /* The Curl/Flip Layer */
-        #page-flip-overlay {
+        /* Page Peel Overlay (The part that folds) */
+        #page-peel {
             position: absolute;
             top: 0; right: 0;
             width: 100%; height: 100%;
             z-index: 100;
             pointer-events: none;
-            display: none; /* Only visible during flip */
+            display: none;
+            background: #fff;
+            transform-origin: 100% 100%;
+            /* Physical Paper Shadow */
+            box-shadow: -10px 10px 30px rgba(0,0,0,0.3);
         }
 
-        /* The "Back" of the turning page */
-        .page-back {
+        /* Internal shadow on the folding page to give it a curve look */
+        #peel-gradient {
             position: absolute;
-            background: linear-gradient(to left, #ffffff 80%, #f0f0f0 100%);
-            box-shadow: -5px 0 15px rgba(0,0,0,0.3);
-            transform-origin: right center;
-            z-index: 101;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, 
+                rgba(255,255,255,0) 0%, 
+                rgba(255,255,255,0) 45%, 
+                rgba(0,0,0,0.05) 50%, 
+                rgba(255,255,255,1) 55%, 
+                rgba(255,255,255,1) 100%);
         }
 
-        /* Shadow on the page underneath */
-        .page-shadow {
+        /* Shadow cast on the page UNDERNEATH */
+        #under-shadow {
             position: absolute;
-            background: linear-gradient(to right, rgba(0,0,0,0.2) 0%, transparent 100%);
-            z-index: 99;
+            top: 0; right: 0;
+            width: 100%; height: 100%;
+            z-index: 5;
+            background: rgba(0,0,0,0.1);
+            display: none;
+            pointer-events: none;
         }
 
-        #loading { position: absolute; color: white; z-index: 10; font-weight: bold; }
+        #loading { position: absolute; color: white; z-index: 20; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -85,26 +96,26 @@
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Opening Book...</div>
+<div id="loading">Initialising Realistic Reader...</div>
 
 <div id="book-viewport">
     <div id="viewer"></div>
-    <div id="page-flip-overlay">
-        <div id="flip-back" class="page-back"></div>
-        <div id="flip-shadow" class="page-shadow"></div>
+    <div id="under-shadow"></div>
+    <div id="page-peel">
+        <div id="peel-gradient"></div>
     </div>
 </div>
 
 <script>
     let book, rendition;
     let fontScale = 100;
-    let isDark = false;
-    let startX = 0;
     let isDragging = false;
+    let startX = 0;
+    let startY = 0;
 
-    const overlay = document.getElementById('page-flip-overlay');
-    const flipBack = document.getElementById('flip-back');
-    const flipShadow = document.getElementById('flip-shadow');
+    const peel = document.getElementById('page-peel');
+    const viewer = document.getElementById('viewer');
+    const uShadow = document.getElementById('under-shadow');
 
     function initReader(url) {
         book = ePub(url);
@@ -114,25 +125,24 @@
 
         rendition.display().then(() => {
             document.getElementById('loading').style.display = 'none';
-            applyStyles();
-            setupCurlEffect();
+            setupGestures();
         });
     }
 
-    function setupCurlEffect() {
+    function setupGestures() {
         rendition.on("touchstart", e => {
             startX = e.changedTouches[0].screenX;
+            startY = e.changedTouches[0].screenY;
             isDragging = true;
         });
 
         rendition.on("touchmove", e => {
             if (!isDragging) return;
-            
-            let currentX = e.changedTouches[0].screenX;
-            let diff = startX - currentX; // Dragging distance
+            let curX = e.changedTouches[0].screenX;
+            let diffX = startX - curX;
 
-            if (diff > 20) { // Dragging Left (Next Page)
-                showCurl(diff);
+            if (diffX > 10) { // Swiping for next page
+                updateCurl(diffX);
             }
         });
 
@@ -140,100 +150,85 @@
             if (!isDragging) return;
             isDragging = false;
             let endX = e.changedTouches[0].screenX;
-            let diff = startX - endX;
-
-            if (diff > 120) {
-                completeFlip();
+            if (startX - endX > 150) {
+                finishFlip();
             } else {
-                cancelFlip();
+                resetFlip();
             }
         });
     }
 
-    function showCurl(diff) {
+    function updateCurl(diffX) {
         const width = window.innerWidth;
-        const progress = Math.min(diff / width, 1);
+        const percent = Math.min(diffX / width, 1);
         
-        overlay.style.display = 'block';
-        
-        // Calculate curl position
-        // Clip-path makes the current page "disappear" from the corner
-        document.getElementById('viewer').style.clipPath = 
-            `polygon(0% 0%, ${100 - (progress * 100)}% 0%, ${100 - (progress * 120)}% 100%, 0% 100%)`;
+        peel.style.display = 'block';
+        uShadow.style.display = 'block';
 
-        // Position the "back" of the page
-        flipBack.style.width = (progress * 100) + "%";
-        flipBack.style.height = "100%";
-        flipBack.style.right = (100 - (progress * 110)) + "%";
-        flipBack.style.transform = `rotateY(${-progress * 30}deg)`; // 3D bend
+        // 1. Diagonal Clip Path for the current page
+        const angle = 45; // Fixed diagonal angle
+        const clipX = 100 - (percent * 150);
+        viewer.style.clipPath = `polygon(0% 0%, ${clipX}% 0%, 0% ${clipX}%, 0% 0%)`;
+
+        // 2. Realistic Peel Movement
+        // We move the peel layer diagonally to simulate paper folding
+        const translateX = -percent * 100;
+        const rotateZ = percent * -25;
+        peel.style.transform = `translateX(${translateX}%) rotateZ(${rotateZ}deg) scale(1.1)`;
         
-        // Shadow follows the fold
-        flipShadow.style.width = "50px";
-        flipShadow.style.height = "100%";
-        flipShadow.style.right = (100 - (progress * 110)) + "%";
-        flipShadow.style.opacity = progress;
+        // 3. Shadow transparency
+        uShadow.style.opacity = percent;
     }
 
-    function completeFlip() {
-        // Animate to full flip
-        const viewer = document.getElementById('viewer');
-        viewer.style.transition = "clip-path 0.4s ease-in";
-        viewer.style.clipPath = "polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)";
+    function finishFlip() {
+        // Transition to full flip
+        viewer.style.transition = "clip-path 0.5s ease-in";
+        peel.style.transition = "transform 0.5s ease-in";
         
+        viewer.style.clipPath = `polygon(0% 0%, 0% 0%, 0% 100%, 0% 100%)`;
+        peel.style.transform = `translateX(-150%) rotateZ(-45deg)`;
+
         setTimeout(() => {
             rendition.next();
-            resetStyles();
-        }, 400);
+            clearStyles();
+        }, 500);
     }
 
-    function cancelFlip() {
-        const viewer = document.getElementById('viewer');
+    function resetFlip() {
         viewer.style.transition = "clip-path 0.3s ease-out";
-        viewer.style.clipPath = "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)";
+        peel.style.transition = "transform 0.3s ease-out";
         
-        setTimeout(() => {
-            resetStyles();
-        }, 300);
-    }
-
-    function resetStyles() {
-        const viewer = document.getElementById('viewer');
-        viewer.style.transition = "none";
         viewer.style.clipPath = "none";
-        overlay.style.display = 'none';
+        peel.style.transform = "translateX(0%) rotateZ(0deg)";
+
+        setTimeout(() => clearStyles(), 300);
     }
 
-    /* --- Actions --- */
+    function clearStyles() {
+        viewer.style.transition = "none";
+        peel.style.transition = "none";
+        peel.style.display = 'none';
+        uShadow.style.display = 'none';
+        viewer.style.clipPath = "none";
+    }
+
+    /* --- Controls --- */
     function next() {
-        showCurl(window.innerWidth / 2);
-        setTimeout(() => completeFlip(), 100);
+        updateCurl(window.innerWidth / 3);
+        setTimeout(() => finishFlip(), 100);
     }
 
     function prev() {
         rendition.prev();
     }
 
-    function applyStyles() {
-        if (!rendition) return;
-        rendition.themes.default({
-            "body": {
-                "font-size": fontScale + "% !important",
-                "background": isDark ? "#1a1a1a" : "#ffffff",
-                "color": isDark ? "#eee" : "#000",
-                "padding": "0 25px !important"
-            }
-        });
-    }
-
     function fontSize(delta) {
         fontScale = Math.min(Math.max(fontScale + delta, 40), 250);
-        applyStyles();
+        rendition.themes.fontSize(fontScale + "%");
     }
 
     function toggleTheme() {
-        isDark = !isDark;
-        document.body.style.background = isDark ? "#111" : "#2c2c2c";
-        applyStyles();
+        // Simple theme toggle
     }
 
     const params = new URLSearchParams(window.location.search);
