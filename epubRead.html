@@ -27,11 +27,38 @@
             font-size: 14px;
         }
         #toolbar button:active { background: #666; }
-        #viewer { flex-grow: 1; width: 100%; position: relative; background: white; }
+        #viewer { 
+            flex-grow: 1; 
+            width: 100%; 
+            position: relative; 
+            background: white; 
+            perspective: 1200px;
+        }
         #loading { 
             position: absolute; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); color: #666; 
             font-weight: bold; text-align: center;
+        }
+
+        /* ===== PAGE CURL ANIMATION ===== */
+        .page-curl-next {
+            animation: curlNext 0.45s ease forwards;
+            transform-origin: right center;
+        }
+
+        .page-curl-prev {
+            animation: curlPrev 0.45s ease forwards;
+            transform-origin: left center;
+        }
+
+        @keyframes curlNext {
+            0% { transform: rotateY(0deg); }
+            100% { transform: rotateY(-18deg); }
+        }
+
+        @keyframes curlPrev {
+            0% { transform: rotateY(0deg); }
+            100% { transform: rotateY(18deg); }
         }
     </style>
 </head>
@@ -55,6 +82,22 @@
     let fontScale = 100;
     let isDark = false;
 
+    /* --- PAGE CURL HELPER --- */
+    function applyPageCurl(direction) {
+        const iframe = document.querySelector("#viewer iframe");
+        if (!iframe) return;
+
+        const doc = iframe.contentDocument;
+        const html = doc.documentElement;
+
+        html.classList.remove("page-curl-next", "page-curl-prev");
+        void html.offsetWidth; // force reflow
+
+        html.classList.add(
+            direction === "next" ? "page-curl-next" : "page-curl-prev"
+        );
+    }
+
     /* --- 2. URL Processing & Cache Busting --- */
     const params = new URLSearchParams(window.location.search);
     let epubUrl = params.get("url");
@@ -63,18 +106,13 @@
         document.getElementById('loading').innerText = "Error: No EPUB URL provided.";
     } else {
         epubUrl = decodeURIComponent(epubUrl);
-        
-        // Add a timestamp to bypass browser CORS cache
         const cacheBuster = epubUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
-        const finalUrl = epubUrl + cacheBuster;
-
-        initReader(finalUrl);
+        initReader(epubUrl + cacheBuster);
     }
 
     /* --- 3. Reader Initialization --- */
     function initReader(url) {
         try {
-            // Initialize book immediately to prevent ReferenceError
             book = ePub(url);
             
             rendition = book.renderTo("viewer", {
@@ -84,53 +122,54 @@
                 manager: "default"
             });
 
-            // Start Rendering
-            const display = rendition.display();
-
-            display.then(() => {
+            rendition.display().then(() => {
                 document.getElementById('loading').style.display = 'none';
-                console.log("Book displayed successfully");
             });
 
-            // Handle Loading Errors (usually CORS or File issues)
             book.ready.catch(err => {
-                console.error("Reader Error:", err);
-                document.getElementById('loading').innerHTML = 
+                document.getElementById('loading').innerHTML =
                     "Failed to load file.<br><small>Ensure S3 CORS includes HEAD and GET methods.</small>";
-                
                 sendToRN("openFailed", err.message);
             });
 
-            // Communication with React Native
             rendition.on("relocated", loc => {
                 sendToRN("pageChange", loc.start.cfi);
             });
 
         } catch (e) {
             document.getElementById('loading').innerText = "Critical error during setup.";
-            console.error(e);
         }
     }
 
-    /* --- 4. UI Controls --- */
-    function next() { if(rendition) rendition.next(); }
-    function prev() { if(rendition) rendition.prev(); }
+    /* --- 4. UI Controls (UPDATED) --- */
+    function next() {
+        if (!rendition) return;
+        applyPageCurl("next");
+        rendition.next();
+    }
 
-    function fontSize(delta) { 
-        if(!rendition) return;
-        fontScale += delta; 
-        rendition.themes.fontSize(fontScale + "%"); 
+    function prev() {
+        if (!rendition) return;
+        applyPageCurl("prev");
+        rendition.prev();
+    }
+
+    function fontSize(delta) {
+        if (!rendition) return;
+        fontScale += delta;
+        rendition.themes.fontSize(fontScale + "%");
     }
 
     function toggleTheme() {
-        if(!rendition) return;
+        if (!rendition) return;
         isDark = !isDark;
         const themeName = isDark ? "dark" : "light";
-        const themeConfig = isDark 
-            ? { body: { background: "#1a1a1a", color: "#eee" }} 
-            : { body: { background: "#ffffff", color: "#000000" }};
-            
-        rendition.themes.register(themeName, themeConfig);
+        rendition.themes.register(themeName, {
+            body: {
+                background: isDark ? "#1a1a1a" : "#ffffff",
+                color: isDark ? "#eee" : "#000"
+            }
+        });
         rendition.themes.select(themeName);
     }
 
@@ -141,7 +180,6 @@
         }
     }
 
-    // Debugging: Global error listener
     window.onerror = function (msg, url, line) {
         sendToRN("jsError", { msg, url, line });
     };
