@@ -3,71 +3,72 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>EPUB Reader with Page Curl</title>
+    <title>Realistic EPUB Reader</title>
     
-    <link rel="icon" href="data:,">
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
 
     <style>
+        :root {
+            --bg-color: #e5e5e5;
+            --spine-shadow: rgba(0,0,0,0.15);
+        }
         body { 
             margin: 0; padding: 0; height: 100vh; 
             display: flex; flex-direction: column; 
-            background: #e0e0e0; font-family: system-ui, -apple-system, sans-serif; 
+            background: var(--bg-color); font-family: system-ui, sans-serif; 
             overflow: hidden;
         }
         #toolbar { 
             height: 50px; background: #222; 
             display: flex; align-items: center; 
-            justify-content: space-around; padding: 0 10px; z-index: 100; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            justify-content: space-around; padding: 0 10px; z-index: 1000; 
         }
         #toolbar button { 
             background: #444; color: white; border: none; 
             padding: 8px 14px; border-radius: 4px; cursor: pointer; 
-            font-size: 14px; min-width: 44px;
         }
-        #toolbar button:active { background: #666; }
 
-        /* Container for the 3D effect */
-        #viewer-container {
+        /* 3D Book Environment */
+        #stage {
             flex-grow: 1;
-            position: relative;
-            perspective: 2000px; /* Crucial for 3D depth */
-            background: #d1d1d1;
+            perspective: 2500px;
             display: flex;
             justify-content: center;
             align-items: center;
+            background: #dcdcdc;
+            overflow: hidden;
+        }
+
+        #viewer-wrapper {
+            width: 95%;
+            height: 95%;
+            position: relative;
+            transform-style: preserve-3d;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: transform 0.1s ease-out; /* For smooth drag */
         }
 
         #viewer { 
             width: 100%;
             height: 100%;
             background: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.2);
-            transition: transform 0.6s cubic-bezier(0.15, 0, 0.15, 1), opacity 0.4s;
-            transform-style: preserve-3d;
+            position: absolute;
         }
 
-        /* Page Curl Classes */
-        .curl-next {
-            transform-origin: left center;
-            transform: rotateY(-25deg) translateX(-100%);
-            opacity: 0;
-        }
-
-        .curl-prev {
-            transform-origin: right center;
-            transform: rotateY(25deg) translateX(100%);
-            opacity: 0;
+        /* The Page Fold Shadow Effect */
+        #page-shadow {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            background: linear-gradient(to right, rgba(0,0,0,0) 90%, rgba(0,0,0,0.05) 100%);
+            transition: opacity 0.3s;
         }
 
         #loading { 
-            position: absolute; top: 50%; left: 50%; 
-            transform: translate(-50%, -50%); color: #666; 
-            font-weight: bold; text-align: center;
-            z-index: 10;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #666; font-weight: bold;
         }
     </style>
 </head>
@@ -81,10 +82,13 @@
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Initializing Reader...</div>
+<div id="loading">Opening Book...</div>
 
-<div id="viewer-container">
-    <div id="viewer"></div>
+<div id="stage">
+    <div id="viewer-wrapper">
+        <div id="viewer"></div>
+        <div id="page-shadow"></div>
+    </div>
 </div>
 
 <script>
@@ -92,23 +96,22 @@
     let fontScale = 100;
     let isDark = false;
     
-    // Swipe handling variables
-    let touchStartX = 0;
-    let touchEndX = 0;
+    // Drag Variables
+    let startX = 0;
+    let isDragging = false;
+    const wrapper = document.getElementById('viewer-wrapper');
+    const shadow = document.getElementById('page-shadow');
 
     function initReader(url) {
         book = ePub(url);
         rendition = book.renderTo("viewer", {
-            width: "100%", 
-            height: "100%", 
-            flow: "paginated", 
-            manager: "default"
+            width: "100%", height: "100%", flow: "paginated"
         });
 
         rendition.display().then(() => {
             document.getElementById('loading').style.display = 'none';
             applyStyles();
-            attachGestures();
+            setupInteractions();
         });
 
         rendition.on("relocated", loc => {
@@ -118,64 +121,76 @@
         });
     }
 
-    /* --- ANIMATION LOGIC --- */
-    function animatePage(direction, callback) {
-        const viewer = document.getElementById("viewer");
-        
-        // Add the curl class
-        viewer.classList.add(direction === "next" ? "curl-next" : "curl-prev");
-
-        // Wait for animation to finish before changing content
-        setTimeout(() => {
-            callback(); // Change the page content
-            
-            // Instantly move page to the opposite side for "entering" effect
-            viewer.style.transition = "none";
-            viewer.classList.remove("curl-next", "curl-prev");
-            viewer.style.transform = direction === "next" ? "translateX(100%)" : "translateX(-100%)";
-            
-            // Slide back into view smoothly
-            setTimeout(() => {
-                viewer.style.transition = "transform 0.5s ease-out, opacity 0.3s";
-                viewer.style.transform = "translateX(0) rotateY(0deg)";
-                viewer.style.opacity = "1";
-            }, 50);
-        }, 500);
-    }
-
-    /* --- GESTURES --- */
-    function attachGestures() {
-        // We must attach listeners to the iframe content
-        rendition.on("touchstart", event => {
-            touchStartX = event.changedTouches[0].screenX;
+    function setupInteractions() {
+        // Since content is in iframe, we listen to rendition events
+        rendition.on("touchstart", e => {
+            startX = e.changedTouches[0].screenX;
+            isDragging = true;
+            wrapper.style.transition = "none";
         });
 
-        rendition.on("touchend", event => {
-            touchEndX = event.changedTouches[0].screenX;
-            handleSwipe();
+        rendition.on("touchmove", e => {
+            if (!isDragging) return;
+            let currentX = e.changedTouches[0].screenX;
+            let diff = currentX - startX;
+            let movePercent = diff / window.innerWidth;
+
+            // Rotate based on drag direction
+            if (diff < 0) { // Dragging Left (Next Page)
+                let angle = movePercent * 120; // Max 120 deg rotation
+                wrapper.style.transformOrigin = "left center";
+                wrapper.style.transform = `rotateY(${angle}deg)`;
+                shadow.style.background = `linear-gradient(to right, rgba(0,0,0,0) 80%, rgba(0,0,0,${Math.abs(movePercent) * 0.4}) 100%)`;
+            } else { // Dragging Right (Prev Page)
+                let angle = movePercent * 120;
+                wrapper.style.transformOrigin = "right center";
+                wrapper.style.transform = `rotateY(${angle}deg)`;
+                shadow.style.background = `linear-gradient(to left, rgba(0,0,0,0) 80%, rgba(0,0,0,${Math.abs(movePercent) * 0.4}) 100%)`;
+            }
+        });
+
+        rendition.on("touchend", e => {
+            isDragging = false;
+            let endX = e.changedTouches[0].screenX;
+            let diff = endX - startX;
+
+            wrapper.style.transition = "transform 0.5s cubic-bezier(0.15, 0, 0.15, 1)";
+            
+            if (Math.abs(diff) > 100) {
+                // Complete the turn
+                wrapper.style.transform = diff < 0 ? "rotateY(-180deg)" : "rotateY(180deg)";
+                setTimeout(() => {
+                    diff < 0 ? rendition.next() : rendition.prev();
+                    resetPage();
+                }, 450);
+            } else {
+                // Snap back if drag wasn't far enough
+                resetPage();
+            }
         });
     }
 
-    function handleSwipe() {
-        const distance = touchEndX - touchStartX;
-        const threshold = 70; // minimum swipe distance
-
-        if (distance < -threshold) next(); // Swipe Left -> Next
-        if (distance > threshold) prev();  // Swipe Right -> Prev
+    function resetPage() {
+        wrapper.style.transition = "transform 0.4s ease";
+        wrapper.style.transform = "rotateY(0deg)";
+        shadow.style.background = "none";
     }
 
-    /* --- BUTTON ACTIONS --- */
     function next() {
-        if (!rendition) return;
-        animatePage("next", () => rendition.next());
+        wrapper.style.transformOrigin = "left center";
+        wrapper.style.transition = "transform 0.6s ease-in-out";
+        wrapper.style.transform = "rotateY(-100deg)";
+        setTimeout(() => { rendition.next(); resetPage(); }, 500);
     }
 
     function prev() {
-        if (!rendition) return;
-        animatePage("prev", () => rendition.prev());
+        wrapper.style.transformOrigin = "right center";
+        wrapper.style.transition = "transform 0.6s ease-in-out";
+        wrapper.style.transform = "rotateY(100deg)";
+        setTimeout(() => { rendition.prev(); resetPage(); }, 500);
     }
 
-    /* --- STYLING & THEME --- */
+    /* --- THEME & FONT --- */
     function applyStyles() {
         if (!rendition) return;
         rendition.themes.default({
@@ -183,7 +198,7 @@
                 "font-size": fontScale + "% !important",
                 "background": isDark ? "#1a1a1a" : "#ffffff",
                 "color": isDark ? "#eee" : "#000",
-                "padding": "0 20px !important"
+                "padding": "0 30px !important"
             }
         });
     }
@@ -195,12 +210,11 @@
 
     function toggleTheme() {
         isDark = !isDark;
-        document.body.style.background = isDark ? "#121212" : "#e0e0e0";
-        document.getElementById("viewer-container").style.background = isDark ? "#222" : "#d1d1d1";
+        document.body.style.background = isDark ? "#111" : "#e5e5e5";
+        document.getElementById('stage').style.background = isDark ? "#1a1a1a" : "#dcdcdc";
         applyStyles();
     }
 
-    // Auto-load if URL exists
     const params = new URLSearchParams(window.location.search);
     let url = params.get("url");
     if (url) initReader(decodeURIComponent(url));
