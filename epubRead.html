@@ -5,16 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>EPUB Reader</title>
     <link rel="icon" href="data:,">
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
-
     <style>
-        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; background: #f5f5f5; font-family: system-ui; }
+        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; background: #f5f5f5; font-family: sans-serif; }
         #toolbar { height: 50px; background: #222; display: flex; align-items: center; justify-content: space-around; padding: 0 10px; z-index: 100; }
         #toolbar button { background: #444; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-        #viewer { flex-grow: 1; width: 100%; position: relative; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; }
+        #viewer { flex-grow: 1; width: 100%; position: relative; background: white; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -27,11 +25,15 @@
     <button onclick="next()">Next ▶</button>
 </div>
 
-<div id="loading">Loading book...</div>
+<div id="loading">Initializing Book...</div>
 <div id="viewer"></div>
 
 <script>
-    // 1. Get URL from Search Params
+    let book, rendition;
+    let fontScale = 100;
+    let isDark = false;
+
+    // 1. Get and Clean URL
     const params = new URLSearchParams(window.location.search);
     const rawUrl = params.get("url");
 
@@ -39,64 +41,56 @@
         document.getElementById('loading').innerText = "Error: No EPUB URL provided.";
     } else {
         const epubUrl = decodeURIComponent(rawUrl);
-        initReader(epubUrl);
+        loadBook(epubUrl);
     }
 
-    let book, rendition;
-    let fontScale = 100;
-    let isDark = false;
+    function loadBook(url) {
+        try {
+            // Define book first to avoid ReferenceError
+            book = ePub(url);
+            
+            rendition = book.renderTo("viewer", {
+                width: "100%",
+                height: "100%",
+                flow: "paginated",
+                manager: "default"
+            });
 
-    function initReader(url) {
-        // Initialize Book
-        // Note: If the URL is from a server without CORS, this will still fail.
-        book = ePub(url); 
-        rendition = book.renderTo("viewer", {
-            width: "100%",
-            height: "100%",
-            flow: "paginated", // Use 'scrolled' for vertical scrolling
-            manager: "default"
-        });
+            book.ready.then(() => {
+                document.getElementById('loading').style.display = 'none';
+                return rendition.display();
+            }).catch(err => {
+                console.error("S3/CORS Error:", err);
+                document.getElementById('loading').innerText = "Error: Cannot access file. Check S3 CORS settings.";
+            });
 
-        const display = rendition.display();
+            // Page Change Sync
+            rendition.on("relocated", loc => {
+                if (window.ReactNativeWebView) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "pageChange", cfi: loc.start.cfi }));
+                }
+            });
 
-        display.then(() => {
-            document.getElementById('loading').style.display = 'none';
-            console.log("Rendered");
-        });
-
-        // Error Handling
-        book.ready.catch(err => {
-            document.getElementById('loading').innerText = "Failed to load EPUB. Check CORS or URL.";
-            sendToRN("error", err.message);
-        });
-    }
-
-    /* --- Controls --- */
-    function next() { rendition.next(); }
-    function prev() { rendition.prev(); }
-
-    function toggleTheme() {
-        isDark = !isDark;
-        const theme = isDark ? { body: { background: "#121212", color: "#eee" }} : { body: { background: "#fff", color: "#000" }};
-        rendition.themes.register(isDark ? "dark" : "light", theme);
-        rendition.themes.select(isDark ? "dark" : "light");
-    }
-
-    function fontSize(delta) {
-        fontScale += delta;
-        rendition.themes.fontSize(fontScale + "%");
-    }
-
-    /* --- Communication with React Native --- */
-    function sendToRN(type, data) {
-        if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type, data }));
+        } catch (e) {
+            document.getElementById('loading').innerText = "Initialization failed.";
         }
     }
 
-    rendition.on("relocated", loc => {
-        sendToRN("pageChange", loc.start.cfi);
-    });
+    /* --- Controls --- */
+    function next() { if(rendition) rendition.next(); }
+    function prev() { if(rendition) rendition.prev(); }
+    function fontSize(delta) { 
+        if(!rendition) return;
+        fontScale += delta; 
+        rendition.themes.fontSize(fontScale + "%"); 
+    }
+    function toggleTheme() {
+        if(!rendition) return;
+        isDark = !isDark;
+        const theme = isDark ? { body: { background: "#1a1a1a", color: "#eee" }} : { body: { background: "#fff", color: "#000" }};
+        rendition.themes.register(isDark ? "dark" : "light", theme);
+        rendition.themes.select(isDark ? "dark" : "light");
+    }
 </script>
 </body>
 </html>
