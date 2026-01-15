@@ -3,101 +3,198 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Realistic 3D Page Curl Reader</title>
+    <title>Responsive 3D Reader</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --toolbar-bg: #222;
+            --text-color: #eee;
+            --paper-color: #fdfaf5;
+            --paper-text: #000;
+            --accent-color: #c0392b;
+        }
+
+        body.dark-mode {
+            --bg-color: #121212;
+            --toolbar-bg: #000;
+            --text-color: #aaa;
+            --paper-color: #333333;
+            --paper-text: #e0e0e0;
+        }
+
         body {
             margin: 0; padding: 0; height: 100vh;
             display: flex; flex-direction: column;
-            background: #1a1a1a; font-family: 'Georgia', serif;
-            overflow: hidden;
-            user-select: none;
+            background: var(--bg-color); font-family: 'Georgia', serif;
+            overflow: hidden; user-select: none;
+            transition: background 0.3s;
         }
 
+        /* ===== RESPONSIVE TOOLBAR ===== */
         #toolbar {
-            height: 50px; background: #222;
-            display: flex; align-items: center;
-            justify-content: space-between;
-            padding: 0 20px; z-index: 2000;
+            background: var(--toolbar-bg);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 15px; z-index: 2000;
             border-bottom: 1px solid #333;
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            transition: all 0.3s;
+            height: 50px;
         }
+
+        .toolbar-group { display: flex; gap: 8px; align-items: center; }
 
         #toolbar button {
             background: #444; color: #eee; border: none;
-            padding: 8px 16px; border-radius: 4px;
-            cursor: pointer; font-size: 14px;
-            transition: background 0.2s;
+            width: 36px; height: 36px; border-radius: 6px;
+            cursor: pointer; font-size: 16px;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s, transform 0.1s;
         }
-        #toolbar button:active { background: #666; }
+        #toolbar button:active { transform: scale(0.95); background: #666; }
+        #toolbar button.active { background: var(--accent-color); color: white; }
 
+        /* Search Bar Logic */
+        .search-container { position: relative; display: flex; align-items: center; }
+        
+        #search-input {
+            background: #333; border: 1px solid #444;
+            color: white; padding: 0 10px; border-radius: 4px;
+            width: 0; height: 36px; opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+            position: absolute; right: 0;
+        }
+        
+        .search-container.active #search-input {
+            width: 150px; opacity: 1; pointer-events: all;
+            right: 40px; 
+        }
+        
+        /* Helper Text (Swipe/Drag) */
+        .helper-text { color:#666; font-size:12px; margin:0 10px; white-space: nowrap; }
+
+        /* ===== MOBILE OPTIMIZATIONS ===== */
+        @media (max-width: 768px) {
+            #toolbar {
+                flex-wrap: wrap;
+                height: auto;
+                padding: 10px;
+                gap: 10px;
+                justify-content: center;
+            }
+
+            /* Group 1: Meta Tools (Top) */
+            .group-meta { 
+                width: 100%; 
+                justify-content: space-between; 
+                order: 1; 
+                border-bottom: 1px solid #333; 
+                padding-bottom: 8px; 
+            }
+
+            /* Group 2: Navigation (Bottom Left) */
+            .group-nav { order: 2; flex-grow: 1; justify-content: flex-start; }
+
+            /* Group 3: Settings (Bottom Right) */
+            .group-settings { order: 3; flex-grow: 1; justify-content: flex-end; }
+
+            .helper-text { display: none; }
+
+            .search-container.active #search-input {
+                width: 200px;
+                background: var(--toolbar-bg);
+                z-index: 10;
+            }
+        }
+
+        /* ===== SIDEBAR & OVERLAYS ===== */
+        #sidebar {
+            position: absolute; top: 0; left: 0; bottom: 0;
+            width: 80%; max-width: 300px; background: #2a2a2a;
+            z-index: 2500;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            box-shadow: 2px 0 15px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column;
+        }
+        #sidebar.open { transform: translateX(0); }
+        
+        .sidebar-header {
+            padding: 15px; background: #222; color: #fff;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #333; font-weight: bold;
+        }
+        
+        #sidebar-content { overflow-y: auto; flex-grow: 1; }
+
+        .sidebar-item {
+            padding: 12px 15px; border-bottom: 1px solid #333;
+            color: #ccc; cursor: pointer; font-size: 14px;
+        }
+        .sidebar-item:hover { background: #333; color: white; }
+        .sidebar-item.result { border-left: 3px solid var(--accent-color); background: #252525; }
+
+        #sidebar-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            z-index: 2400; display: none; backdrop-filter: blur(2px);
+        }
+        #sidebar-overlay.active { display: block; }
+
+        /* ===== BOOK VIEWPORT ===== */
         #book-viewport {
-            flex-grow: 1;
-            position: relative;
-            background: #252525;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            perspective: 2000px; /* Deep perspective for 3D feel */
+            flex-grow: 1; position: relative;
+            background: #252525; overflow: hidden;
+            display: flex; justify-content: center; align-items: center;
+            perspective: 2000px;
         }
 
         #viewer {
             width: 100%; height: 100%;
-            background: #fdfaf5; /* Paper color */
-            z-index: 10;
-            position: absolute;
+            background: var(--paper-color);
+            z-index: 10; position: absolute;
+            transition: background 0.3s;
         }
 
-        /* ===== THE PEEL ELEMENT ===== */
+        /* ===== PEEL ANIMATION ELEMENTS ===== */
         #page-peel {
-            position: absolute;
-            top: 0; 
-            width: 100%; height: 100%;
-            z-index: 100;
-            pointer-events: none;
-            display: none;
-            background: #fdfaf5; /* Matches viewer bg */
-            backface-visibility: hidden;
-            will-change: transform, clip-path;
-            
-            /* The realistic spine shadow */
+            position: absolute; top: 0; width: 100%; height: 100%;
+            z-index: 100; pointer-events: none; display: none;
+            background: var(--paper-color);
+            backface-visibility: hidden; will-change: transform, clip-path;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
+            transition: background 0.3s;
         }
 
-        /* Gradient that simulates the curve lighting */
         #peel-gradient {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(
-                to left,
-                rgba(0,0,0,0.2) 0%,
-                rgba(255,255,255,0.4) 15%,
-                rgba(0,0,0,0.05) 40%,
-                transparent 100%
-            );
+            position: absolute; inset: 0;
+            background: linear-gradient(to left, rgba(0,0,0,0.2), rgba(255,255,255,0.4) 15%, transparent 100%);
         }
 
-        /* The shadow cast onto the page below */
         #drop-shadow {
-            position: absolute;
-            top: 0; width: 100%; height: 100%;
-            z-index: 50;
-            background: rgba(0,0,0,0.4);
-            display: none;
-            pointer-events: none;
-            transition: opacity 0.1s;
+            position: absolute; top: 0; width: 100%; height: 100%;
+            z-index: 50; background: rgba(0,0,0,0.4);
+            display: none; pointer-events: none; transition: opacity 0.1s;
         }
 
         #loading {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            color: #888; z-index: 20;
-            font-family: sans-serif;
-            text-align: center;
+            color: #888; z-index: 20; font-family: sans-serif;
+        }
+
+        #notification {
+            position: absolute; bottom: 30px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85); color: white;
+            padding: 8px 16px; border-radius: 20px;
+            font-family: sans-serif; font-size: 13px;
+            opacity: 0; transition: opacity 0.3s;
+            pointer-events: none; z-index: 3000;
         }
     </style>
 </head>
@@ -105,18 +202,47 @@
 <body>
 
 <div id="toolbar">
-    <button onclick="triggerPrev()">◀ Prev</button>
-    <div style="color:#666; font-size:12px">Drag page edges to flip</div>
-    <button onclick="triggerNext()">Next ▶</button>
+    <div class="toolbar-group group-meta">
+        <div style="display:flex; gap:8px;">
+            <button onclick="toggleSidebar()" title="Table of Contents"><i class="fas fa-list"></i></button>
+            <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
+        </div>
+        
+        <div class="search-container" id="search-container">
+            <input type="text" id="search-input" placeholder="Search..." onkeydown="handleSearch(event)">
+            <button onclick="toggleSearch()" title="Search"><i class="fas fa-search"></i></button>
+        </div>
+    </div>
+
+    <div class="toolbar-group group-nav">
+        <button onclick="triggerPrev()" title="Previous"><i class="fas fa-chevron-left"></i></button>
+        <span class="helper-text">Swipe / Drag</span>
+        <button onclick="triggerNext()" title="Next"><i class="fas fa-chevron-right"></i></button>
+    </div>
+
+    <div class="toolbar-group group-settings">
+        <button onclick="changeFontSize(-10)" title="Zoom Out"><i class="fas fa-minus"></i></button>
+        <button onclick="changeFontSize(10)" title="Zoom In"><i class="fas fa-plus"></i></button>
+        <button onclick="toggleTheme()" title="Theme"><i class="fas fa-adjust"></i></button>
+    </div>
+</div>
+
+<div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<div id="sidebar">
+    <div class="sidebar-header">
+        <span id="sidebar-title">Contents</span>
+        <i class="fas fa-times" onclick="toggleSidebar()" style="cursor:pointer"></i>
+    </div>
+    <div id="sidebar-content"></div>
 </div>
 
 <div id="loading">Loading Book...</div>
+<div id="notification">Notification</div>
 
 <div id="book-viewport">
     <div id="viewer"></div>
-    
     <div id="drop-shadow"></div>
-    
     <div id="page-peel">
         <div id="peel-gradient"></div>
     </div>
@@ -127,219 +253,257 @@
     let isDragging = false;
     let startX = 0;
     let width = window.innerWidth;
+    
+    // Zoom State
+    let currentFontSize = 100;
+    let isDarkMode = false;
 
     // Elements
     const peel = document.getElementById('page-peel');
     const peelGrad = document.getElementById('peel-gradient');
     const viewer = document.getElementById('viewer');
     const dropShadow = document.getElementById('drop-shadow');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const sidebarContent = document.getElementById('sidebar-content');
+    const searchContainer = document.getElementById('search-container');
+    const searchInput = document.getElementById('search-input');
 
-    // Default book if none provided (Alice in Wonderland)
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
     function initReader(url) {
         book = ePub(url);
-        rendition = book.renderTo("viewer", {
-            width: "100%", height: "100%", flow: "paginated"
-        });
+        rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
 
-        rendition.display().then(() => {
+        const savedLocation = localStorage.getItem('book-location');
+        const startOptions = savedLocation ? { cfi: savedLocation } : {};
+
+        rendition.display(startOptions.cfi).then(() => {
             document.getElementById('loading').style.display = 'none';
             setupGestures();
+            setupThemes();
+            generateTOC();
             
-            // Set initial theme to match paper
-            rendition.themes.register("paper", { body: { background: "#fdfaf5" } });
-            rendition.themes.select("paper");
+            rendition.on('relocated', (location) => {
+                localStorage.setItem('book-location', location.start.cfi);
+                checkBookmarkStatus(location.start.cfi);
+            });
+        });
+
+        book.ready.then(() => { book.locations.generate(1000); });
+    }
+
+    /* --- UI & ZOOM FUNCTIONS --- */
+    function setupThemes() {
+        rendition.themes.register("light", { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } });
+        rendition.themes.register("dark", { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } });
+        rendition.themes.select("light");
+    }
+
+    function toggleTheme() {
+        isDarkMode = !isDarkMode;
+        document.body.classList.toggle('dark-mode');
+        
+        if (isDarkMode) {
+            rendition.themes.select("dark");
+            peel.style.background = "#333333"; 
+        } else {
+            rendition.themes.select("light");
+            peel.style.background = "#fdfaf5";
+        }
+        
+        // FIX: Re-apply font size after theme switch ensures zoom persists
+        rendition.themes.fontSize(currentFontSize + "%");
+    }
+
+    function changeFontSize(amount) {
+        // Calculate new size
+        currentFontSize += amount;
+        
+        // Clamp between 50% and 300%
+        if(currentFontSize < 50) currentFontSize = 50;
+        if(currentFontSize > 300) currentFontSize = 300;
+
+        // Apply
+        rendition.themes.fontSize(currentFontSize + "%");
+        showNotification(`Zoom: ${currentFontSize}%`);
+    }
+
+    /* --- OTHER UI LOGIC --- */
+    function toggleSidebar() {
+        sidebar.classList.toggle('open');
+        sidebarOverlay.classList.toggle('active');
+    }
+
+    function toggleSearch() {
+        searchContainer.classList.toggle('active');
+        if(searchContainer.classList.contains('active')) {
+            searchInput.focus();
+        }
+    }
+
+    function generateTOC() {
+        document.getElementById('sidebar-title').innerText = "Table of Contents";
+        sidebarContent.innerHTML = "";
+        book.loaded.navigation.then(function(toc) {
+            toc.forEach(function(chapter) {
+                let item = document.createElement("div");
+                item.className = "sidebar-item";
+                item.innerText = chapter.label.trim();
+                item.onclick = function() {
+                    rendition.display(chapter.href);
+                    toggleSidebar();
+                };
+                sidebarContent.appendChild(item);
+            });
         });
     }
 
-    /* =========================================
-       GESTURE HANDLING (SWIPE & DRAG)
-       ========================================= */
+    function handleSearch(e) {
+        if (e.key === 'Enter') {
+            const query = e.target.value;
+            if(!query) return;
+            showNotification("Searching...");
+            toggleSearch(); 
+            
+            document.getElementById('sidebar-title').innerText = "Search Results";
+            sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
+            if(!sidebar.classList.contains('open')) toggleSidebar();
+
+            Promise.all(
+                book.spine.spineItems.map(item => 
+                    item.load(book.load.bind(book))
+                    .then(item.find.bind(item, query))
+                    .finally(item.unload.bind(item))
+                )
+            ).then(results => {
+                sidebarContent.innerHTML = "";
+                const allResults = [].concat.apply([], results);
+                if(allResults.length === 0) {
+                    sidebarContent.innerHTML = "<div class='sidebar-item'>No results found.</div>";
+                    return;
+                }
+                allResults.forEach(result => {
+                    let item = document.createElement("div");
+                    item.className = "sidebar-item result";
+                    const excerpt = result.excerpt.replace(query, `<b>${query}</b>`);
+                    item.innerHTML = `...${excerpt}...`;
+                    item.onclick = function() {
+                        rendition.display(result.cfi);
+                        toggleSidebar();
+                    };
+                    sidebarContent.appendChild(item);
+                });
+            });
+        }
+    }
+
+    function saveBookmark() {
+        const currentLoc = rendition.currentLocation().start.cfi;
+        const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || "[]");
+        
+        if(bookmarks.includes(currentLoc)) {
+            bookmarks.splice(bookmarks.indexOf(currentLoc), 1);
+            showNotification("Bookmark Removed");
+            document.getElementById('btn-bookmark').classList.remove('active');
+        } else {
+            bookmarks.push(currentLoc);
+            showNotification("Bookmarked");
+            document.getElementById('btn-bookmark').classList.add('active');
+        }
+        localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+    }
+
+    function checkBookmarkStatus(cfi) {
+        const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || "[]");
+        if(bookmarks.includes(cfi)) document.getElementById('btn-bookmark').classList.add('active');
+        else document.getElementById('btn-bookmark').classList.remove('active');
+    }
+
+    function showNotification(msg) {
+        const note = document.getElementById('notification');
+        note.innerText = msg;
+        note.style.opacity = '1';
+        setTimeout(() => { note.style.opacity = '0'; }, 2000);
+    }
+
+    /* --- ANIMATION LOGIC (UNCHANGED) --- */
     function setupGestures() {
         rendition.on("touchstart", e => {
-            startX = e.changedTouches[0].screenX;
-            isDragging = true;
-            width = window.innerWidth;
-            
-            // Reset transitions for instant drag response
-            peel.style.transition = 'none';
-            dropShadow.style.transition = 'none';
+            startX = e.changedTouches[0].screenX; isDragging = true; width = window.innerWidth;
+            peel.style.transition = 'none'; dropShadow.style.transition = 'none';
         });
-
         rendition.on("touchmove", e => {
             if (!isDragging) return;
-            const currentX = e.changedTouches[0].screenX;
-            const diff = startX - currentX;
-            
-            // Determine direction based on drag
-            if (diff > 0) {
-                // Dragging Left (NEXT Page)
-                updatePeelNext(diff);
-            } else {
-                // Dragging Right (PREV Page)
-                updatePeelPrev(Math.abs(diff));
-            }
-        });
-
-        rendition.on("touchend", e => {
-            if (!isDragging) return;
-            isDragging = false;
             const diff = startX - e.changedTouches[0].screenX;
-
-            // Threshold to complete the flip
-            if (diff > 100) finishNext();
-            else if (diff < -100) finishPrev();
-            else resetFlip();
+            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
+        });
+        rendition.on("touchend", e => {
+            if (!isDragging) return; isDragging = false;
+            const diff = startX - e.changedTouches[0].screenX;
+            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
         });
     }
 
-    /* =========================================
-       ANIMATION LOGIC: NEXT (Right to Left)
-       ========================================= */
-    // Simulates the CURRENT page peeling away to reveal the next one
     function updatePeelNext(diff) {
-        // limit diff to screen width
         const progress = Math.min(Math.max(diff / width, 0), 1);
-        
-        peel.style.display = "block";
-        dropShadow.style.display = "block";
-        
-        // Settings for Next: Anchor Right
-        peel.style.transformOrigin = "center right"; 
-        peel.style.left = "0";
-        peel.style.right = "auto";
-
-        // Calculate rotation and clip
-        // As we drag left, we clip the right side of the peel
+        peel.style.display = "block"; dropShadow.style.display = "block";
+        peel.style.transformOrigin = "center right"; peel.style.left = "0"; peel.style.right = "auto";
         const clipX = 100 - (progress * 100);
-        
-        // Visuals
         peel.style.clipPath = `polygon(0 0, ${clipX}% 0, ${clipX}% 100%, 0% 100%)`;
         peel.style.transform = `translateX(${-progress * 20}px) rotateY(${-progress * 20}deg)`;
-        
-        // Gradient follows the fold
         peelGrad.style.background = `linear-gradient(to left, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.2) ${clipX}%, rgba(255,255,255,0.5) ${clipX+5}%)`;
-        
         dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.5) ${clipX}%)`;
         dropShadow.style.opacity = progress;
     }
 
     function finishNext() {
-        peel.style.transition = "all 0.4s ease-out";
-        dropShadow.style.transition = "all 0.4s ease-out";
-
-        // Animate fully to left
-        peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`;
-        dropShadow.style.opacity = 0;
-
-        // Actually change page in epub.js
+        peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
+        peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
         rendition.next().then(() => {
             setTimeout(() => {
-                peel.style.display = "none";
-                dropShadow.style.display = "none";
-                // Reset styles
-                peel.style.clipPath = "none";
-                peel.style.transform = "none";
-            }, 300); // Wait for transition
+                peel.style.display = "none"; dropShadow.style.display = "none";
+                peel.style.clipPath = "none"; peel.style.transform = "none";
+            }, 300);
         });
     }
 
-    /* =========================================
-       ANIMATION LOGIC: PREV (Left to Right)
-       ========================================= */
-    // Simulates the PREVIOUS page falling on top of the current one
     function updatePeelPrev(diff) {
         const progress = Math.min(Math.max(diff / width, 0), 1);
-        
-        peel.style.display = "block";
-        dropShadow.style.display = "block";
-
-        // Settings for Prev: Anchor Left
-        peel.style.transformOrigin = "center left";
-        peel.style.left = "0"; 
-
-        // For PREV, the peel represents the NEW page coming in.
-        // It starts clipped at 0 and grows to 100.
+        peel.style.display = "block"; dropShadow.style.display = "block";
+        peel.style.transformOrigin = "center left"; peel.style.left = "0"; 
         const clipX = progress * 100;
-
         peel.style.clipPath = `polygon(0 0, ${clipX}% 0, ${clipX}% 100%, 0% 100%)`;
-        
-        // Add a slight curl lift
-        const lift = (1 - progress) * 15; // Degrees
-        peel.style.transform = `translateX(0) rotateY(${lift}deg)`;
-
-        // Gradient logic flipped
+        peel.style.transform = `translateX(0) rotateY(${(1 - progress) * 15}deg)`;
         peelGrad.style.background = `linear-gradient(to right, rgba(255,255,255,0) ${clipX-15}%, rgba(0,0,0,0.1) ${clipX}%, rgba(0,0,0,0) ${clipX+5}%)`;
-        
         dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) ${clipX}%)`;
         dropShadow.style.opacity = progress;
     }
 
     function finishPrev() {
-        // We need to load the previous page BEHIND the peel, 
-        // then animate the peel closing shut.
-        
-        // 1. Immediately Snap Peel to Full Screen (User expects page is there)
         peel.style.transition = "all 0.3s ease-out";
-        peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`;
-        peel.style.transform = `rotateY(0deg)`;
+        peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`;
         dropShadow.style.opacity = 0;
-
-        // 2. Load the actual Previous Page data
-        rendition.prev().then(() => {
-            // 3. Once loaded, hide the peel (user won't notice swap because visual is identical)
-            setTimeout(() => {
-                peel.style.display = "none";
-                dropShadow.style.display = "none";
-            }, 100);
-        });
+        rendition.prev().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; }, 100); });
     }
 
-    /* =========================================
-       UTILS & BUTTON TRIGGERS
-       ========================================= */
-    
     function resetFlip() {
-        peel.style.transition = "all 0.3s ease-out";
-        peel.style.clipPath = "none"; 
-        peel.style.display = "none";
-        dropShadow.style.display = "none";
+        peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; 
+        peel.style.display = "none"; dropShadow.style.display = "none";
     }
 
     function triggerNext() {
-        width = window.innerWidth;
-        // Programmatic Animation
-        let start = 0;
-        const animate = () => {
-            start += 25; // Speed
-            if (start < width) {
-                updatePeelNext(start);
-                requestAnimationFrame(animate);
-            } else {
-                finishNext();
-            }
-        };
+        width = window.innerWidth; let start = 0;
+        const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); };
         animate();
     }
 
     function triggerPrev() {
-        width = window.innerWidth;
-        // Programmatic Animation
-        let start = 0;
-        const animate = () => {
-            start += 25;
-            if (start < width) {
-                updatePeelPrev(start);
-                requestAnimationFrame(animate);
-            } else {
-                finishPrev();
-            }
-        };
+        width = window.innerWidth; let start = 0;
+        const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); };
         animate();
     }
 
-    // INIT
     const params = new URLSearchParams(window.location.search);
     const url = params.get("url") || DEFAULT_BOOK;
     initReader(decodeURIComponent(url));

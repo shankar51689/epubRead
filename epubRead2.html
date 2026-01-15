@@ -296,7 +296,7 @@
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
-    /* --- THEMES & ZOOM (FIXED) --- */
+    /* --- THEMES & ZOOM --- */
     function setupThemes() {
         rendition.themes.register("light", { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } });
         rendition.themes.register("dark", { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } });
@@ -328,7 +328,6 @@
         sidebar.classList.toggle('open');
         sidebarOverlay.classList.toggle('active');
         if(sidebar.classList.contains('open')) {
-            // Refresh current tab
             switchTab(currentTab);
         }
     }
@@ -345,7 +344,7 @@
     }
 
     function generateTOC() {
-        if(navigationData.length === 0) {
+        if(!navigationData || navigationData.length === 0) {
             sidebarContent.innerHTML = "<div class='sidebar-item'>No Table of Contents</div>";
             return;
         }
@@ -361,6 +360,77 @@
         });
     }
 
+    /* --- FIXED BOOKMARK LOGIC --- */
+    function getBookmarks() {
+        try {
+            const stored = localStorage.getItem('bookmarks_v2');
+            return stored ? JSON.parse(stored) : [];
+        } catch(e) {
+            return [];
+        }
+    }
+
+    function saveBookmark() {
+        const loc = rendition.currentLocation();
+        
+        // Safety Check
+        if (!loc || !loc.start) {
+            showNotification("Page Loading...");
+            return;
+        }
+
+        const cfi = loc.start.cfi;
+        let bookmarks = getBookmarks();
+        
+        // Check if exists (Toggle Logic)
+        const index = bookmarks.findIndex(b => b.cfi === cfi);
+        
+        if (index > -1) {
+            // Remove
+            bookmarks.splice(index, 1);
+            showNotification("Bookmark Removed");
+            document.getElementById('btn-bookmark').classList.remove('active');
+        } else {
+            // Add
+            // Try to find a chapter label
+            let label = "Bookmark";
+            if (loc.start.displayed && loc.start.displayed.page) {
+                label = `Page ${loc.start.displayed.page}`;
+            } else if (navigationData) {
+                // Fallback to finding chapter name from CFI
+                const chapter = navigationData.find(n => n.href && cfi.includes(n.href));
+                if(chapter) label = chapter.label;
+            }
+
+            bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
+            showNotification("Bookmark Saved");
+            document.getElementById('btn-bookmark').classList.add('active');
+        }
+        
+        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+
+        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+            renderBookmarks();
+        }
+    }
+
+    function removeBookmark(cfi) {
+        let bookmarks = getBookmarks();
+        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
+        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+        
+        // Update UI if we are on that page
+        const currentCfi = rendition.currentLocation()?.start?.cfi;
+        if (currentCfi === cfi) {
+            document.getElementById('btn-bookmark').classList.remove('active');
+            showNotification("Bookmark Removed");
+        }
+        
+        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+            renderBookmarks();
+        }
+    }
+
     function renderBookmarks() {
         const bookmarks = getBookmarks();
         if (bookmarks.length === 0) {
@@ -373,7 +443,6 @@
             item.className = "sidebar-item";
             
             let textSpan = document.createElement("span");
-            // Use label if available, or fall back to "Bookmark X"
             textSpan.innerText = bm.label || `Bookmark ${index + 1}`;
             textSpan.style.overflow = "hidden";
             textSpan.style.whiteSpace = "nowrap";
@@ -397,6 +466,13 @@
         });
     }
 
+    function checkBookmarkStatus(cfi) {
+        const bookmarks = getBookmarks();
+        const exists = bookmarks.some(b => b.cfi === cfi);
+        if(exists) document.getElementById('btn-bookmark').classList.add('active');
+        else document.getElementById('btn-bookmark').classList.remove('active');
+    }
+
     /* --- SEARCH --- */
     function toggleSearch() {
         searchContainer.classList.toggle('active');
@@ -410,10 +486,8 @@
             showNotification("Searching...");
             toggleSearch(); 
             
-            // Switch sidebar to search mode temporary (or just use TOC area)
             sidebar.classList.add('open');
             sidebarOverlay.classList.add('active');
-            // Hide tabs for search result view
             document.querySelector('.sidebar-tabs').style.display = 'none';
             document.getElementById('sidebar-title').innerText = "Search Results";
             sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
@@ -426,7 +500,6 @@
                 )
             ).then(results => {
                 sidebarContent.innerHTML = "";
-                // Add back button
                 let backBtn = document.createElement("div");
                 backBtn.className = "sidebar-item";
                 backBtn.style.background = "#333";
@@ -454,7 +527,6 @@
                     item.onclick = () => {
                         rendition.display(result.cfi);
                         toggleSidebar();
-                        // Reset sidebar state
                         document.querySelector('.sidebar-tabs').style.display = 'flex';
                         document.getElementById('sidebar-title').innerText = "Library";
                         switchTab(currentTab);
@@ -463,70 +535,6 @@
                 });
             });
         }
-    }
-
-    /* --- BOOKMARK LOGIC --- */
-    function getBookmarks() {
-        const stored = localStorage.getItem('bookmarks_v2');
-        return stored ? JSON.parse(stored) : [];
-    }
-
-    function saveBookmark() {
-        const loc = rendition.currentLocation();
-        const cfi = loc.start.cfi;
-        const bookmarks = getBookmarks();
-        
-        // Check if exists
-        const existingIndex = bookmarks.findIndex(b => b.cfi === cfi);
-        
-        if (existingIndex > -1) {
-            // Remove
-            removeBookmark(cfi);
-        } else {
-            // Add
-            // Try to find a chapter label
-            let label = "Page " + (loc.start.displayed.page || "?");
-            
-            // Try matching spine href to TOC
-            const spineItem = book.spine.get(cfi);
-            if (spineItem && navigationData.length > 0) {
-                const navItem = navigationData.find(n => n.href.includes(spineItem.href));
-                if (navItem) label = navItem.label;
-            }
-
-            bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
-            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-            showNotification("Bookmark Saved");
-            document.getElementById('btn-bookmark').classList.add('active');
-            
-            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-                renderBookmarks();
-            }
-        }
-    }
-
-    function removeBookmark(cfi) {
-        let bookmarks = getBookmarks();
-        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
-        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-        
-        // Update UI
-        const currentCfi = rendition.currentLocation().start.cfi;
-        if (currentCfi === cfi) {
-            document.getElementById('btn-bookmark').classList.remove('active');
-            showNotification("Bookmark Removed");
-        }
-        
-        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-            renderBookmarks();
-        }
-    }
-
-    function checkBookmarkStatus(cfi) {
-        const bookmarks = getBookmarks();
-        const exists = bookmarks.some(b => b.cfi === cfi);
-        if(exists) document.getElementById('btn-bookmark').classList.add('active');
-        else document.getElementById('btn-bookmark').classList.remove('active');
     }
 
     function showNotification(msg) {
