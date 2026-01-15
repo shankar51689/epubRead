@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Advanced 3D Reader with Highlighting</title>
+    <title>Advanced 3D Reader</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
@@ -18,7 +18,6 @@
             --paper-text: #000;
             --accent-color: #c0392b;
             --sidebar-bg: #2a2a2a;
-            --highlight-color: rgba(255, 255, 0, 0.4);
         }
 
         body.dark-mode {
@@ -28,14 +27,15 @@
             --paper-color: #333333;
             --paper-text: #e0e0e0;
             --sidebar-bg: #1f1f1f;
-            --highlight-color: rgba(255, 200, 0, 0.5); /* Darker yellow for dark mode */
         }
 
         body {
             margin: 0; padding: 0; height: 100vh;
             display: flex; flex-direction: column;
             background: var(--bg-color); font-family: 'Georgia', serif;
-            overflow: hidden; user-select: none;
+            overflow: hidden; 
+            /* We allow selection on body, but handle it in viewer */
+            user-select: none; 
             transition: background 0.3s;
         }
 
@@ -61,9 +61,9 @@
         }
         #toolbar button:active { transform: scale(0.95); background: #666; }
         #toolbar button.active { background: var(--accent-color); color: white; }
-
-        /* Highlight Button Specific Style */
-        #btn-highlight.active { background: #f1c40f; color: #333; }
+        
+        /* Specific Highlight Button Style when Active */
+        #btn-highlight.active { background: #f1c40f; color: #333; box-shadow: 0 0 10px #f1c40f; }
 
         .search-container { position: relative; display: flex; align-items: center; }
         
@@ -257,7 +257,7 @@
     let isDarkMode = false;
     let currentTab = 'toc';
     let navigationData = []; 
-    let isHighlightMode = false; // New: Highlight Mode State
+    let isHighlightMode = false; // Highlight State
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -291,7 +291,7 @@
             registerThemes();
             rendition.themes.select("light");
             
-            // Load saved highlights
+            // Apply saved highlights
             loadHighlights();
 
             // Load TOC
@@ -300,17 +300,17 @@
                 generateTOC();
             });
 
-            // Location Change
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
             });
 
-            // --- SELECTION HANDLER FOR HIGHLIGHTS ---
+            // --- SELECTION HANDLER ---
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
                     addHighlight(cfiRange);
-                    contents.window.getSelection().removeAllRanges(); // Clear text selection
+                    // Clear native selection so it looks clean
+                    contents.window.getSelection().removeAllRanges(); 
                 }
             });
         });
@@ -318,31 +318,33 @@
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
-    /* --- HIGHLIGHTING LOGIC --- */
+    /* --- HIGHLIGHT LOGIC --- */
     function toggleHighlightMode() {
         isHighlightMode = !isHighlightMode;
         const btn = document.getElementById('btn-highlight');
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight Mode: ON (Select text)");
+            showNotification("Highlight Mode: ON (Drag to select)");
         } else {
             btn.classList.remove('active');
-            showNotification("Highlight Mode: OFF");
+            showNotification("Highlight Mode: OFF (Swipe to turn)");
         }
     }
 
     function addHighlight(cfiRange) {
-        // 1. Add visual annotation
+        // 1. Add Annotation
         rendition.annotations.add('highlight', cfiRange, {}, (e) => {
-            // Click to remove functionality
-            console.log("Clicked highlight", cfiRange);
+            // Click to remove
             removeHighlight(cfiRange);
         });
 
-        // 2. Save to storage
+        // 2. Save to Storage
         let highlights = getStoredHighlights();
-        highlights.push(cfiRange);
-        localStorage.setItem('highlights', JSON.stringify(highlights));
+        // Prevent duplicates
+        if(!highlights.includes(cfiRange)){
+            highlights.push(cfiRange);
+            localStorage.setItem('highlights', JSON.stringify(highlights));
+        }
     }
 
     function removeHighlight(cfiRange) {
@@ -368,7 +370,7 @@
         } catch (e) { return []; }
     }
 
-    /* --- THEMES & ZOOM --- */
+    /* --- FIXED THEMES LOGIC --- */
     function registerThemes() {
         rendition.themes.register("light", THEMES.light);
         rendition.themes.register("dark", THEMES.dark);
@@ -377,6 +379,7 @@
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         document.body.classList.toggle('dark-mode');
+        
         registerThemes();
 
         if (isDarkMode) {
@@ -396,6 +399,61 @@
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         rendition.themes.fontSize(currentFontSize + "%");
         showNotification(`Zoom: ${currentFontSize}%`);
+    }
+
+    /* --- GESTURE LOGIC (FIXED FOR HIGHLIGHTING) --- */
+    function setupGestures() {
+        rendition.on("touchstart", e => {
+            // CRITICAL FIX: If Highlight Mode is ON, disable page turn swipes
+            // This allows the user to drag and select text freely.
+            if (isHighlightMode) return; 
+
+            startX = e.changedTouches[0].screenX;
+            isDragging = true;
+            width = window.innerWidth;
+            peel.style.transition = 'none';
+            dropShadow.style.transition = 'none';
+        });
+
+        rendition.on("touchmove", e => {
+            if (!isDragging) return;
+            // Prevent default only if we are page turning
+            if (e.preventDefault) e.preventDefault();
+            
+            const diff = startX - e.changedTouches[0].screenX;
+            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
+        });
+
+        rendition.on("touchend", e => {
+            if (!isDragging) return;
+            isDragging = false;
+            const diff = startX - e.changedTouches[0].screenX;
+            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
+        });
+        
+        // Mouse Support for Desktop Dragging
+        rendition.on("mousedown", e => {
+            if (isHighlightMode) return; // Allow text selection
+            startX = e.screenX;
+            isDragging = true;
+            width = window.innerWidth;
+            peel.style.transition = 'none';
+            dropShadow.style.transition = 'none';
+        });
+        
+        rendition.on("mousemove", e => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const diff = startX - e.screenX;
+            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
+        });
+        
+        rendition.on("mouseup", e => {
+            if (!isDragging) return;
+            isDragging = false;
+            const diff = startX - e.screenX;
+            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
+        });
     }
 
     /* --- SIDEBAR & TABS --- */
@@ -433,7 +491,10 @@
 
     /* --- BOOKMARK LOGIC --- */
     function getBookmarks() {
-        try { return JSON.parse(localStorage.getItem('bookmarks_v2') || "[]"); } catch(e) { return []; }
+        try {
+            const stored = localStorage.getItem('bookmarks_v2');
+            return stored ? JSON.parse(stored) : [];
+        } catch(e) { return []; }
     }
 
     function saveBookmark() {
@@ -588,24 +649,7 @@
         setTimeout(() => { note.style.opacity = '0'; }, 2000);
     }
 
-    /* --- ANIMATION LOGIC (UNCHANGED) --- */
-    function setupGestures() {
-        rendition.on("touchstart", e => {
-            startX = e.changedTouches[0].screenX; isDragging = true; width = window.innerWidth;
-            peel.style.transition = 'none'; dropShadow.style.transition = 'none';
-        });
-        rendition.on("touchmove", e => {
-            if (!isDragging) return;
-            const diff = startX - e.changedTouches[0].screenX;
-            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
-        });
-        rendition.on("touchend", e => {
-            if (!isDragging) return; isDragging = false;
-            const diff = startX - e.changedTouches[0].screenX;
-            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
-        });
-    }
-
+    /* --- ANIMATION PHYSICS --- */
     function updatePeelNext(diff) {
         const progress = Math.min(Math.max(diff / width, 0), 1);
         peel.style.display = "block"; dropShadow.style.display = "block";
