@@ -293,6 +293,7 @@
             });
         });
 
+        // Generate locations in background (Async)
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
@@ -360,29 +361,28 @@
         });
     }
 
-    /* --- FIXED BOOKMARK LOGIC --- */
+    /* --- ROBUST BOOKMARK LOGIC --- */
     function getBookmarks() {
         try {
             const stored = localStorage.getItem('bookmarks_v2');
             return stored ? JSON.parse(stored) : [];
         } catch(e) {
-            return [];
+            return []; // Fail safe for corrupted storage
         }
     }
 
     function saveBookmark() {
         const loc = rendition.currentLocation();
         
-        // Safety Check
         if (!loc || !loc.start) {
-            showNotification("Page Loading...");
+            showNotification("Please wait, book loading...");
             return;
         }
 
         const cfi = loc.start.cfi;
         let bookmarks = getBookmarks();
         
-        // Check if exists (Toggle Logic)
+        // 1. Check if already exists (Toggle behavior)
         const index = bookmarks.findIndex(b => b.cfi === cfi);
         
         if (index > -1) {
@@ -392,15 +392,37 @@
             document.getElementById('btn-bookmark').classList.remove('active');
         } else {
             // Add
-            // Try to find a chapter label
+            // 2. Generate Smart Label
             let label = "Bookmark";
-            if (loc.start.displayed && loc.start.displayed.page) {
-                label = `Page ${loc.start.displayed.page}`;
-            } else if (navigationData) {
-                // Fallback to finding chapter name from CFI
-                const chapter = navigationData.find(n => n.href && cfi.includes(n.href));
-                if(chapter) label = chapter.label;
+            let chapterName = "";
+            let progressLabel = "";
+
+            // A. Try to get Chapter Name from TOC
+            const spineItem = book.spine.get(cfi);
+            if (spineItem && navigationData) {
+                 const tocItem = navigationData.find(n => n.href.includes(spineItem.href));
+                 if(tocItem) chapterName = tocItem.label.trim();
             }
+
+            // B. Try to get Page Number or Percentage
+            // locationFromCfi requires locations to be generated. If not ready, it might fail.
+            try {
+                const pageNum = book.locations.locationFromCfi(cfi);
+                if (pageNum && pageNum > 0) {
+                    progressLabel = `Page ${pageNum}`;
+                } else if (loc.start.percentage) {
+                    // Fallback to percentage if page num fails
+                    progressLabel = `${Math.round(loc.start.percentage * 100)}%`;
+                }
+            } catch(e) {
+                // If locations aren't generated yet, fallback to percentage
+                if (loc.start.percentage) progressLabel = `${Math.round(loc.start.percentage * 100)}%`;
+            }
+
+            // C. Combine them
+            if (chapterName && progressLabel) label = `${chapterName} (${progressLabel})`;
+            else if (chapterName) label = chapterName;
+            else if (progressLabel) label = progressLabel;
 
             bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
             showNotification("Bookmark Saved");
@@ -409,6 +431,7 @@
         
         localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
 
+        // Refresh UI if open
         if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
             renderBookmarks();
         }
@@ -419,13 +442,14 @@
         bookmarks = bookmarks.filter(b => b.cfi !== cfi);
         localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
         
-        // Update UI if we are on that page
-        const currentCfi = rendition.currentLocation()?.start?.cfi;
-        if (currentCfi === cfi) {
+        // Update Button if current page
+        const currentLoc = rendition.currentLocation();
+        if (currentLoc && currentLoc.start.cfi === cfi) {
             document.getElementById('btn-bookmark').classList.remove('active');
             showNotification("Bookmark Removed");
         }
         
+        // Refresh List
         if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
             renderBookmarks();
         }
@@ -443,7 +467,7 @@
             item.className = "sidebar-item";
             
             let textSpan = document.createElement("span");
-            textSpan.innerText = bm.label || `Bookmark ${index + 1}`;
+            textSpan.innerText = bm.label;
             textSpan.style.overflow = "hidden";
             textSpan.style.whiteSpace = "nowrap";
             textSpan.style.textOverflow = "ellipsis";
