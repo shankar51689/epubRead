@@ -293,7 +293,7 @@
             });
         });
 
-        // Generate locations in background (Async)
+        // Don't rely on generated locations for basic functionality
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
@@ -367,73 +367,74 @@
             const stored = localStorage.getItem('bookmarks_v2');
             return stored ? JSON.parse(stored) : [];
         } catch(e) {
-            return []; // Fail safe for corrupted storage
+            console.error("Bookmark storage error", e);
+            return [];
         }
     }
 
     function saveBookmark() {
-        const loc = rendition.currentLocation();
-        
-        if (!loc || !loc.start) {
-            showNotification("Please wait, book loading...");
-            return;
-        }
-
-        const cfi = loc.start.cfi;
-        let bookmarks = getBookmarks();
-        
-        // 1. Check if already exists (Toggle behavior)
-        const index = bookmarks.findIndex(b => b.cfi === cfi);
-        
-        if (index > -1) {
-            // Remove
-            bookmarks.splice(index, 1);
-            showNotification("Bookmark Removed");
-            document.getElementById('btn-bookmark').classList.remove('active');
-        } else {
-            // Add
-            // 2. Generate Smart Label
-            let label = "Bookmark";
-            let chapterName = "";
-            let progressLabel = "";
-
-            // A. Try to get Chapter Name from TOC
-            const spineItem = book.spine.get(cfi);
-            if (spineItem && navigationData) {
-                 const tocItem = navigationData.find(n => n.href.includes(spineItem.href));
-                 if(tocItem) chapterName = tocItem.label.trim();
+        try {
+            const loc = rendition.currentLocation();
+            
+            // Safety Check
+            if (!loc || !loc.start || !loc.start.cfi) {
+                showNotification("Wait, book loading...");
+                return;
             }
 
-            // B. Try to get Page Number or Percentage
-            // locationFromCfi requires locations to be generated. If not ready, it might fail.
-            try {
-                const pageNum = book.locations.locationFromCfi(cfi);
-                if (pageNum && pageNum > 0) {
-                    progressLabel = `Page ${pageNum}`;
-                } else if (loc.start.percentage) {
-                    // Fallback to percentage if page num fails
-                    progressLabel = `${Math.round(loc.start.percentage * 100)}%`;
+            const cfi = loc.start.cfi;
+            let bookmarks = getBookmarks();
+            
+            // Check if exists (Toggle Logic)
+            const index = bookmarks.findIndex(b => b.cfi === cfi);
+            
+            if (index > -1) {
+                // REMOVE
+                bookmarks.splice(index, 1);
+                showNotification("Bookmark Removed");
+                document.getElementById('btn-bookmark').classList.remove('active');
+            } else {
+                // ADD
+                // Safe label generation
+                let label = "Bookmark";
+                let chapterName = "";
+                let progressStr = "";
+
+                // 1. Try Chapter Name
+                if (navigationData) {
+                    // Try to match CFI to Chapter
+                    const spineItem = book.spine.get(cfi);
+                    if(spineItem) {
+                         const tocItem = navigationData.find(n => n.href.includes(spineItem.href));
+                         if(tocItem) chapterName = tocItem.label.trim();
+                    }
                 }
-            } catch(e) {
-                // If locations aren't generated yet, fallback to percentage
-                if (loc.start.percentage) progressLabel = `${Math.round(loc.start.percentage * 100)}%`;
+
+                // 2. Try Percentage (Safe Fallback)
+                if (loc.start.percentage) {
+                    progressStr = Math.round(loc.start.percentage * 100) + "%";
+                }
+
+                if (chapterName && progressStr) label = `${chapterName} (${progressStr})`;
+                else if (chapterName) label = chapterName;
+                else if (progressStr) label = `Location ${progressStr}`;
+                else label = `Bookmark at ${new Date().toLocaleTimeString()}`;
+
+                bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
+                showNotification("Bookmark Saved");
+                document.getElementById('btn-bookmark').classList.add('active');
+            }
+            
+            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+
+            // Force refresh if sidebar is looking at bookmarks
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+                renderBookmarks();
             }
 
-            // C. Combine them
-            if (chapterName && progressLabel) label = `${chapterName} (${progressLabel})`;
-            else if (chapterName) label = chapterName;
-            else if (progressLabel) label = progressLabel;
-
-            bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
-            showNotification("Bookmark Saved");
-            document.getElementById('btn-bookmark').classList.add('active');
-        }
-        
-        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-
-        // Refresh UI if open
-        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-            renderBookmarks();
+        } catch (error) {
+            console.error(error);
+            showNotification("Error saving bookmark");
         }
     }
 
@@ -442,14 +443,13 @@
         bookmarks = bookmarks.filter(b => b.cfi !== cfi);
         localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
         
-        // Update Button if current page
+        // Update UI button if we are currently on that page
         const currentLoc = rendition.currentLocation();
         if (currentLoc && currentLoc.start.cfi === cfi) {
             document.getElementById('btn-bookmark').classList.remove('active');
             showNotification("Bookmark Removed");
         }
         
-        // Refresh List
         if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
             renderBookmarks();
         }
@@ -457,6 +457,8 @@
 
     function renderBookmarks() {
         const bookmarks = getBookmarks();
+        sidebarContent.innerHTML = ""; // Clear existing
+
         if (bookmarks.length === 0) {
             sidebarContent.innerHTML = "<div class='sidebar-item' style='justify-content:center; color:#666;'>No bookmarks yet</div>";
             return;
