@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Advanced 3D Reader</title>
+    <title>Advanced 3D Reader with Highlighting</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
@@ -18,6 +18,7 @@
             --paper-text: #000;
             --accent-color: #c0392b;
             --sidebar-bg: #2a2a2a;
+            --highlight-color: rgba(255, 255, 0, 0.4);
         }
 
         body.dark-mode {
@@ -27,6 +28,7 @@
             --paper-color: #333333;
             --paper-text: #e0e0e0;
             --sidebar-bg: #1f1f1f;
+            --highlight-color: rgba(255, 200, 0, 0.5); /* Darker yellow for dark mode */
         }
 
         body {
@@ -60,6 +62,9 @@
         #toolbar button:active { transform: scale(0.95); background: #666; }
         #toolbar button.active { background: var(--accent-color); color: white; }
 
+        /* Highlight Button Specific Style */
+        #btn-highlight.active { background: #f1c40f; color: #333; }
+
         .search-container { position: relative; display: flex; align-items: center; }
         
         #search-input {
@@ -88,7 +93,7 @@
             .search-container.active #search-input { width: 200px; background: var(--toolbar-bg); z-index: 10; }
         }
 
-        /* ===== SIDEBAR (TOC & BOOKMARKS) ===== */
+        /* ===== SIDEBAR ===== */
         #sidebar {
             position: absolute; top: 0; left: 0; bottom: 0;
             width: 85%; max-width: 320px; background: var(--sidebar-bg);
@@ -106,7 +111,6 @@
             border-bottom: 1px solid #444; font-weight: bold;
         }
 
-        /* Tabs */
         .sidebar-tabs {
             display: flex; background: rgba(0,0,0,0.2);
         }
@@ -129,9 +133,7 @@
         .sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
         .sidebar-item.result { border-left: 3px solid var(--accent-color); background: rgba(0,0,0,0.2); }
         
-        .bookmark-delete {
-            color: #666; padding: 5px; cursor: pointer;
-        }
+        .bookmark-delete { color: #666; padding: 5px; cursor: pointer; }
         .bookmark-delete:hover { color: #c0392b; }
 
         #sidebar-overlay {
@@ -197,6 +199,7 @@
         <div style="display:flex; gap:8px;">
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
+            <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
         </div>
         
         <div class="search-container" id="search-container">
@@ -254,6 +257,7 @@
     let isDarkMode = false;
     let currentTab = 'toc';
     let navigationData = []; 
+    let isHighlightMode = false; // New: Highlight Mode State
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -268,7 +272,6 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
-    // Theme Config (Object for easier reuse)
     const THEMES = {
         light: { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } },
         dark: { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } }
@@ -285,27 +288,87 @@
         rendition.display(startOptions.cfi).then(() => {
             document.getElementById('loading').style.display = 'none';
             setupGestures();
-            
-            // Initial Theme
             registerThemes();
             rendition.themes.select("light");
             
+            // Load saved highlights
+            loadHighlights();
+
             // Load TOC
             book.loaded.navigation.then(function(toc) {
                 navigationData = toc;
                 generateTOC();
             });
 
+            // Location Change
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
+            });
+
+            // --- SELECTION HANDLER FOR HIGHLIGHTS ---
+            rendition.on('selected', (cfiRange, contents) => {
+                if (isHighlightMode) {
+                    addHighlight(cfiRange);
+                    contents.window.getSelection().removeAllRanges(); // Clear text selection
+                }
             });
         });
 
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
-    /* --- FIXED THEMES LOGIC --- */
+    /* --- HIGHLIGHTING LOGIC --- */
+    function toggleHighlightMode() {
+        isHighlightMode = !isHighlightMode;
+        const btn = document.getElementById('btn-highlight');
+        if (isHighlightMode) {
+            btn.classList.add('active');
+            showNotification("Highlight Mode: ON (Select text)");
+        } else {
+            btn.classList.remove('active');
+            showNotification("Highlight Mode: OFF");
+        }
+    }
+
+    function addHighlight(cfiRange) {
+        // 1. Add visual annotation
+        rendition.annotations.add('highlight', cfiRange, {}, (e) => {
+            // Click to remove functionality
+            console.log("Clicked highlight", cfiRange);
+            removeHighlight(cfiRange);
+        });
+
+        // 2. Save to storage
+        let highlights = getStoredHighlights();
+        highlights.push(cfiRange);
+        localStorage.setItem('highlights', JSON.stringify(highlights));
+    }
+
+    function removeHighlight(cfiRange) {
+        rendition.annotations.remove(cfiRange, 'highlight');
+        let highlights = getStoredHighlights();
+        highlights = highlights.filter(h => h !== cfiRange);
+        localStorage.setItem('highlights', JSON.stringify(highlights));
+        showNotification("Highlight Removed");
+    }
+
+    function loadHighlights() {
+        let highlights = getStoredHighlights();
+        highlights.forEach(cfiRange => {
+            rendition.annotations.add('highlight', cfiRange, {}, (e) => {
+                removeHighlight(cfiRange);
+            });
+        });
+    }
+
+    function getStoredHighlights() {
+        try {
+            return JSON.parse(localStorage.getItem('highlights') || "[]");
+        } catch (e) { return []; }
+    }
+
+    /* --- THEMES & ZOOM --- */
     function registerThemes() {
         rendition.themes.register("light", THEMES.light);
         rendition.themes.register("dark", THEMES.dark);
@@ -314,12 +377,8 @@
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         document.body.classList.toggle('dark-mode');
-        
-        // 1. Force Re-Register Themes (Fixes "One Time" Bug)
-        // This ensures the style object is fresh for epub.js
         registerThemes();
 
-        // 2. Select Theme
         if (isDarkMode) {
             rendition.themes.select("dark");
             peel.style.background = "#333333"; 
@@ -328,7 +387,6 @@
             peel.style.background = "#fdfaf5";
         }
         
-        // 3. Re-apply Font Size (Styles might get reset)
         setTimeout(() => {
             rendition.themes.fontSize(currentFontSize + "%");
         }, 10);
@@ -344,18 +402,14 @@
     function toggleSidebar() {
         sidebar.classList.toggle('open');
         sidebarOverlay.classList.toggle('active');
-        if(sidebar.classList.contains('open')) {
-            switchTab(currentTab);
-        }
+        if(sidebar.classList.contains('open')) switchTab(currentTab);
     }
 
     function switchTab(tab) {
         currentTab = tab;
         document.getElementById('tab-toc').classList.toggle('active', tab === 'toc');
         document.getElementById('tab-bookmarks').classList.toggle('active', tab === 'bookmarks');
-        
-        sidebarContent.innerHTML = ""; // Clear
-        
+        sidebarContent.innerHTML = ""; 
         if (tab === 'toc') generateTOC();
         else renderBookmarks();
     }
@@ -377,24 +431,18 @@
         });
     }
 
-    /* --- ROBUST BOOKMARK LOGIC --- */
+    /* --- BOOKMARK LOGIC --- */
     function getBookmarks() {
-        try {
-            const stored = localStorage.getItem('bookmarks_v2');
-            return stored ? JSON.parse(stored) : [];
-        } catch(e) { return []; }
+        try { return JSON.parse(localStorage.getItem('bookmarks_v2') || "[]"); } catch(e) { return []; }
     }
 
     function saveBookmark() {
         try {
             const loc = rendition.currentLocation();
-            if (!loc || !loc.start || !loc.start.cfi) {
-                showNotification("Loading..."); return;
-            }
-
+            if (!loc || !loc.start) { showNotification("Loading..."); return; }
+            
             const cfi = loc.start.cfi;
             let bookmarks = getBookmarks();
-            
             const index = bookmarks.findIndex(b => b.cfi === cfi);
             
             if (index > -1) {
@@ -416,83 +464,52 @@
                     } catch(err) {}
                 }
 
-                if (loc.start.percentage) {
-                    progressStr = Math.round(loc.start.percentage * 100) + "%";
-                }
+                if (loc.start.percentage) progressStr = Math.round(loc.start.percentage * 100) + "%";
 
                 if (chapterName && progressStr) label = `${chapterName} (${progressStr})`;
                 else if (chapterName) label = chapterName;
                 else if (progressStr) label = `Location ${progressStr}`;
-                else label = `Bookmark at ${new Date().toLocaleTimeString()}`;
-
+                
                 bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
                 showNotification("Bookmark Saved");
                 document.getElementById('btn-bookmark').classList.add('active');
             }
-            
             localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-
-            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-                renderBookmarks();
-            }
-
-        } catch (error) {
-            console.error(error);
-            showNotification("Storage Blocked");
-        }
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') renderBookmarks();
+        } catch (error) { showNotification("Storage Error"); }
     }
 
     function removeBookmark(cfi) {
-        try {
-            let bookmarks = getBookmarks();
-            bookmarks = bookmarks.filter(b => b.cfi !== cfi);
-            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-            
-            const currentLoc = rendition.currentLocation();
-            if (currentLoc && currentLoc.start.cfi === cfi) {
-                document.getElementById('btn-bookmark').classList.remove('active');
-                showNotification("Bookmark Removed");
-            }
-            
-            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-                renderBookmarks();
-            }
-        } catch(e) {}
+        let bookmarks = getBookmarks();
+        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
+        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+        
+        const currentLoc = rendition.currentLocation();
+        if (currentLoc && currentLoc.start.cfi === cfi) {
+            document.getElementById('btn-bookmark').classList.remove('active');
+            showNotification("Bookmark Removed");
+        }
+        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') renderBookmarks();
     }
 
     function renderBookmarks() {
         const bookmarks = getBookmarks();
         sidebarContent.innerHTML = ""; 
-
         if (bookmarks.length === 0) {
             sidebarContent.innerHTML = "<div class='sidebar-item' style='justify-content:center; color:#666;'>No bookmarks yet</div>";
             return;
         }
-
         bookmarks.forEach((bm, index) => {
             let item = document.createElement("div");
             item.className = "sidebar-item";
-            
             let textSpan = document.createElement("span");
             textSpan.innerText = bm.label;
-            textSpan.style.overflow = "hidden";
-            textSpan.style.whiteSpace = "nowrap";
-            textSpan.style.textOverflow = "ellipsis";
-            
+            textSpan.style.overflow = "hidden"; textSpan.style.whiteSpace = "nowrap"; textSpan.style.textOverflow = "ellipsis";
             let trashIcon = document.createElement("i");
             trashIcon.className = "fas fa-trash bookmark-delete";
-            trashIcon.onclick = (e) => {
-                e.stopPropagation();
-                removeBookmark(bm.cfi);
-            };
-
-            item.appendChild(textSpan);
-            item.appendChild(trashIcon);
-            
-            item.onclick = () => {
-                rendition.display(bm.cfi);
-                toggleSidebar();
-            };
+            trashIcon.onclick = (e) => { e.stopPropagation(); removeBookmark(bm.cfi); };
+            item.appendChild(textSpan); item.appendChild(trashIcon);
+            item.onclick = () => { rendition.display(bm.cfi); toggleSidebar(); };
             sidebarContent.appendChild(item);
         });
     }
@@ -516,7 +533,6 @@
             if(!query) return;
             showNotification("Searching...");
             toggleSearch(); 
-            
             sidebar.classList.add('open');
             sidebarOverlay.classList.add('active');
             document.querySelector('.sidebar-tabs').style.display = 'none';
@@ -544,10 +560,7 @@
 
                 const allResults = [].concat.apply([], results);
                 if(allResults.length === 0) {
-                    let msg = document.createElement("div");
-                    msg.className = "sidebar-item";
-                    msg.innerText = "No results found.";
-                    sidebarContent.appendChild(msg);
+                    sidebarContent.innerHTML += "<div class='sidebar-item'>No results found.</div>";
                     return;
                 }
                 allResults.forEach(result => {
