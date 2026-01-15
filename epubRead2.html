@@ -268,6 +268,12 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
+    // Theme Config (Object for easier reuse)
+    const THEMES = {
+        light: { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } },
+        dark: { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } }
+    };
+
     function initReader(url) {
         book = ePub(url);
         rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
@@ -279,10 +285,12 @@
         rendition.display(startOptions.cfi).then(() => {
             document.getElementById('loading').style.display = 'none';
             setupGestures();
-            // Initial Theme Setup
-            registerThemes(); 
+            
+            // Initial Theme
+            registerThemes();
             rendition.themes.select("light");
             
+            // Load TOC
             book.loaded.navigation.then(function(toc) {
                 navigationData = toc;
                 generateTOC();
@@ -299,18 +307,19 @@
 
     /* --- FIXED THEMES LOGIC --- */
     function registerThemes() {
-        // We ensure themes are registered exactly as we need them
-        rendition.themes.register("light", { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } });
-        rendition.themes.register("dark", { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } });
+        rendition.themes.register("light", THEMES.light);
+        rendition.themes.register("dark", THEMES.dark);
     }
 
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         document.body.classList.toggle('dark-mode');
         
-        // Force re-register to ensure clean slate (fixes "one time" bug)
+        // 1. Force Re-Register Themes (Fixes "One Time" Bug)
+        // This ensures the style object is fresh for epub.js
         registerThemes();
 
+        // 2. Select Theme
         if (isDarkMode) {
             rendition.themes.select("dark");
             peel.style.background = "#333333"; 
@@ -319,10 +328,10 @@
             peel.style.background = "#fdfaf5";
         }
         
-        // Re-apply font size after a short delay to ensure theme doesn't override it
+        // 3. Re-apply Font Size (Styles might get reset)
         setTimeout(() => {
             rendition.themes.fontSize(currentFontSize + "%");
-        }, 50);
+        }, 10);
     }
 
     function changeFontSize(amount) {
@@ -373,17 +382,14 @@
         try {
             const stored = localStorage.getItem('bookmarks_v2');
             return stored ? JSON.parse(stored) : [];
-        } catch(e) {
-            return [];
-        }
+        } catch(e) { return []; }
     }
 
     function saveBookmark() {
         try {
             const loc = rendition.currentLocation();
             if (!loc || !loc.start || !loc.start.cfi) {
-                showNotification("Loading...");
-                return;
+                showNotification("Loading..."); return;
             }
 
             const cfi = loc.start.cfi;
