@@ -43,7 +43,7 @@
             border-bottom: 1px solid #333;
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
             transition: all 0.3s;
-            height: 50px; /* Default Desktop Height */
+            height: 50px;
         }
 
         .toolbar-group { display: flex; gap: 8px; align-items: center; }
@@ -72,7 +72,7 @@
         
         .search-container.active #search-input {
             width: 150px; opacity: 1; pointer-events: all;
-            right: 40px; /* Push to left of button */
+            right: 40px; 
         }
         
         /* Helper Text (Swipe/Drag) */
@@ -86,11 +86,6 @@
                 padding: 10px;
                 gap: 10px;
                 justify-content: center;
-            }
-
-            /* Stack Toolbar Groups */
-            .toolbar-group { 
-                justify-content: center; 
             }
 
             /* Group 1: Meta Tools (Top) */
@@ -108,10 +103,8 @@
             /* Group 3: Settings (Bottom Right) */
             .group-settings { order: 3; flex-grow: 1; justify-content: flex-end; }
 
-            /* Hide Helper Text on Mobile */
             .helper-text { display: none; }
 
-            /* Adjust Search on Mobile */
             .search-container.active #search-input {
                 width: 200px;
                 background: var(--toolbar-bg);
@@ -119,11 +112,11 @@
             }
         }
 
-        /* ===== SIDEBAR (TOC & SEARCH) ===== */
+        /* ===== SIDEBAR & OVERLAYS ===== */
         #sidebar {
             position: absolute; top: 0; left: 0; bottom: 0;
             width: 80%; max-width: 300px; background: #2a2a2a;
-            z-index: 2500; /* Higher than toolbar */
+            z-index: 2500;
             transform: translateX(-100%);
             transition: transform 0.3s ease;
             box-shadow: 2px 0 15px rgba(0,0,0,0.5);
@@ -146,7 +139,6 @@
         .sidebar-item:hover { background: #333; color: white; }
         .sidebar-item.result { border-left: 3px solid var(--accent-color); background: #252525; }
 
-        /* Overlay for Sidebar */
         #sidebar-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,0.5);
             z-index: 2400; display: none; backdrop-filter: blur(2px);
@@ -168,7 +160,7 @@
             transition: background 0.3s;
         }
 
-        /* ===== PEEL & SHADOW ===== */
+        /* ===== PEEL ANIMATION ELEMENTS ===== */
         #page-peel {
             position: absolute; top: 0; width: 100%; height: 100%;
             z-index: 100; pointer-events: none; display: none;
@@ -261,6 +253,8 @@
     let isDragging = false;
     let startX = 0;
     let width = window.innerWidth;
+    
+    // Zoom State
     let currentFontSize = 100;
     let isDarkMode = false;
 
@@ -299,7 +293,7 @@
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
-    /* --- UI FUNCTIONS --- */
+    /* --- UI & ZOOM FUNCTIONS --- */
     function setupThemes() {
         rendition.themes.register("light", { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } });
         rendition.themes.register("dark", { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } });
@@ -309,6 +303,7 @@
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         document.body.classList.toggle('dark-mode');
+        
         if (isDarkMode) {
             rendition.themes.select("dark");
             peel.style.background = "#333333"; 
@@ -316,14 +311,25 @@
             rendition.themes.select("light");
             peel.style.background = "#fdfaf5";
         }
+        
+        // FIX: Re-apply font size after theme switch ensures zoom persists
+        rendition.themes.fontSize(currentFontSize + "%");
     }
 
     function changeFontSize(amount) {
-        currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
+        // Calculate new size
+        currentFontSize += amount;
+        
+        // Clamp between 50% and 300%
+        if(currentFontSize < 50) currentFontSize = 50;
+        if(currentFontSize > 300) currentFontSize = 300;
+
+        // Apply
         rendition.themes.fontSize(currentFontSize + "%");
         showNotification(`Zoom: ${currentFontSize}%`);
     }
 
+    /* --- OTHER UI LOGIC --- */
     function toggleSidebar() {
         sidebar.classList.toggle('open');
         sidebarOverlay.classList.toggle('active');
@@ -358,7 +364,7 @@
             const query = e.target.value;
             if(!query) return;
             showNotification("Searching...");
-            toggleSearch(); // close input
+            toggleSearch(); 
             
             document.getElementById('sidebar-title').innerText = "Search Results";
             sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
