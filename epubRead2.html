@@ -254,6 +254,7 @@
     let isDarkMode = false;
     let currentTab = 'toc'; // 'toc' or 'bookmarks'
     let navigationData = []; // Store TOC for easy access
+    let locationsReady = false; // Flag to check if pagination is done
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -295,8 +296,14 @@
             });
         });
 
-        // Don't rely on generated locations for basic functionality
-        book.ready.then(() => { book.locations.generate(1000); });
+        // 1. Force Location Generation for Page Numbers
+        book.ready.then(() => { 
+            // Generate locations (1000 characters per page default)
+            book.locations.generate(1000).then(() => {
+                locationsReady = true;
+                console.log("Locations generated");
+            });
+        });
     }
 
     /* --- THEMES & ZOOM --- */
@@ -363,7 +370,7 @@
         });
     }
 
-    /* --- FIXED ROBUST BOOKMARK LOGIC --- */
+    /* --- FIXED BOOKMARK LOGIC (PAGE NUMBER) --- */
     function getBookmarks() {
         try {
             const stored = localStorage.getItem('bookmarks_v2');
@@ -380,28 +387,27 @@
             
             // 1. Safety Check
             if (!loc || !loc.start || !loc.start.cfi) {
-                showNotification("Please wait, loading...");
+                showNotification("Loading, please wait...");
                 return;
             }
 
             const cfi = loc.start.cfi;
             let bookmarks = getBookmarks();
             
-            // 2. Check if already exists (Toggle Logic)
+            // 2. Toggle Logic
             const index = bookmarks.findIndex(b => b.cfi === cfi);
             
             if (index > -1) {
-                // REMOVE
                 bookmarks.splice(index, 1);
                 showNotification("Bookmark Removed");
                 document.getElementById('btn-bookmark').classList.remove('active');
             } else {
-                // ADD
+                // 3. GENERATE PAGE NUMBER LABEL
                 let label = "Bookmark";
                 let chapterName = "";
-                let progressStr = "";
+                let pageStr = "";
 
-                // A. Try Chapter Name (Safe Search)
+                // A. Try getting Chapter Name
                 if (navigationData) {
                     try {
                         const spineItem = book.spine.get(cfi);
@@ -409,19 +415,27 @@
                              const tocItem = navigationData.find(n => n.href && n.href.includes(spineItem.href));
                              if(tocItem) chapterName = tocItem.label.trim();
                         }
-                    } catch(err) { console.log("Chapter lookup failed"); }
+                    } catch(err) {}
                 }
 
-                // B. Try Percentage (Safe Fallback)
-                if (loc.start.percentage) {
-                    progressStr = Math.round(loc.start.percentage * 100) + "%";
+                // B. Get Exact Page Number (Priority)
+                if (locationsReady) {
+                    // Get virtual page number
+                    const pageNum = book.locations.locationFromCfi(cfi);
+                    // Also get total pages to look nice "Page 5 of 200"
+                    // const total = book.locations.total; 
+                    if (pageNum > 0) pageStr = `Page ${pageNum}`;
+                } 
+                
+                // C. Fallback if locations not ready yet
+                if (!pageStr && loc.start.percentage) {
+                    pageStr = Math.round(loc.start.percentage * 100) + "%";
                 }
 
-                // C. Construct Label
-                if (chapterName && progressStr) label = `${chapterName} (${progressStr})`;
+                // D. Combine
+                if (chapterName && pageStr) label = `${chapterName} (${pageStr})`;
+                else if (pageStr) label = pageStr; // "Page 5" or "50%"
                 else if (chapterName) label = chapterName;
-                else if (progressStr) label = `Location ${progressStr}`;
-                else label = `Bookmark at ${new Date().toLocaleTimeString()}`;
 
                 bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
                 showNotification("Bookmark Saved");
@@ -430,16 +444,14 @@
             
             localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
 
-            // Force refresh if sidebar is looking at bookmarks
             if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
                 renderBookmarks();
             }
 
         } catch (error) {
             console.error("Bookmark Error:", error);
-            // Fallback for when localStorage is blocked (e.g. file:// protocol)
-            if(error.name === 'SecurityError' || error.name === 'QuotaExceededError') {
-                showNotification("Storage Disabled (Security)");
+            if(error.name === 'SecurityError') {
+                showNotification("Storage Blocked (Security)");
             } else {
                 showNotification("Error saving bookmark");
             }
@@ -452,7 +464,6 @@
             bookmarks = bookmarks.filter(b => b.cfi !== cfi);
             localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
             
-            // Update UI button if we are currently on that page
             const currentLoc = rendition.currentLocation();
             if (currentLoc && currentLoc.start.cfi === cfi) {
                 document.getElementById('btn-bookmark').classList.remove('active');
