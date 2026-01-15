@@ -254,6 +254,7 @@
     let isDarkMode = false;
     let currentTab = 'toc'; // 'toc' or 'bookmarks'
     let navigationData = []; // Store TOC for easy access
+    let locationsReady = false; // Flag to check if pagination is done
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -272,7 +273,9 @@
         book = ePub(url);
         rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
 
-        const savedLocation = localStorage.getItem('book-location');
+        // Safe location loading
+        let savedLocation = null;
+        try { savedLocation = localStorage.getItem('book-location'); } catch(e) {}
         const startOptions = savedLocation ? { cfi: savedLocation } : {};
 
         rendition.display(startOptions.cfi).then(() => {
@@ -288,12 +291,19 @@
 
             // Save location & check bookmark
             rendition.on('relocated', (location) => {
-                localStorage.setItem('book-location', location.start.cfi);
+                try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
             });
         });
 
-        book.ready.then(() => { book.locations.generate(1000); });
+        // 1. Force Location Generation for Page Numbers
+        book.ready.then(() => { 
+            // Generate locations (1000 characters per page default)
+            book.locations.generate(1000).then(() => {
+                locationsReady = true;
+                console.log("Locations generated");
+            });
+        });
     }
 
     /* --- THEMES & ZOOM --- */
@@ -360,79 +370,116 @@
         });
     }
 
-    /* --- FIXED BOOKMARK LOGIC --- */
+    /* --- FIXED BOOKMARK LOGIC (PAGE NUMBER) --- */
     function getBookmarks() {
         try {
             const stored = localStorage.getItem('bookmarks_v2');
             return stored ? JSON.parse(stored) : [];
         } catch(e) {
+            console.warn("Storage access failed");
             return [];
         }
     }
 
     function saveBookmark() {
-        const loc = rendition.currentLocation();
-        
-        // Safety Check
-        if (!loc || !loc.start) {
-            showNotification("Page Loading...");
-            return;
-        }
-
-        const cfi = loc.start.cfi;
-        let bookmarks = getBookmarks();
-        
-        // Check if exists (Toggle Logic)
-        const index = bookmarks.findIndex(b => b.cfi === cfi);
-        
-        if (index > -1) {
-            // Remove
-            bookmarks.splice(index, 1);
-            showNotification("Bookmark Removed");
-            document.getElementById('btn-bookmark').classList.remove('active');
-        } else {
-            // Add
-            // Try to find a chapter label
-            let label = "Bookmark";
-            if (loc.start.displayed && loc.start.displayed.page) {
-                label = `Page ${loc.start.displayed.page}`;
-            } else if (navigationData) {
-                // Fallback to finding chapter name from CFI
-                const chapter = navigationData.find(n => n.href && cfi.includes(n.href));
-                if(chapter) label = chapter.label;
+        try {
+            const loc = rendition.currentLocation();
+            
+            // 1. Safety Check
+            if (!loc || !loc.start || !loc.start.cfi) {
+                showNotification("Loading, please wait...");
+                return;
             }
 
-            bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
-            showNotification("Bookmark Saved");
-            document.getElementById('btn-bookmark').classList.add('active');
-        }
-        
-        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+            const cfi = loc.start.cfi;
+            let bookmarks = getBookmarks();
+            
+            // 2. Toggle Logic
+            const index = bookmarks.findIndex(b => b.cfi === cfi);
+            
+            if (index > -1) {
+                bookmarks.splice(index, 1);
+                showNotification("Bookmark Removed");
+                document.getElementById('btn-bookmark').classList.remove('active');
+            } else {
+                // 3. GENERATE PAGE NUMBER LABEL
+                let label = "Bookmark";
+                let chapterName = "";
+                let pageStr = "";
 
-        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-            renderBookmarks();
+                // A. Try getting Chapter Name
+                if (navigationData) {
+                    try {
+                        const spineItem = book.spine.get(cfi);
+                        if(spineItem && spineItem.href) {
+                             const tocItem = navigationData.find(n => n.href && n.href.includes(spineItem.href));
+                             if(tocItem) chapterName = tocItem.label.trim();
+                        }
+                    } catch(err) {}
+                }
+
+                // B. Get Exact Page Number (Priority)
+                if (locationsReady) {
+                    // Get virtual page number
+                    const pageNum = book.locations.locationFromCfi(cfi);
+                    // Also get total pages to look nice "Page 5 of 200"
+                    // const total = book.locations.total; 
+                    if (pageNum > 0) pageStr = `Page ${pageNum}`;
+                } 
+                
+                // C. Fallback if locations not ready yet
+                if (!pageStr && loc.start.percentage) {
+                    pageStr = Math.round(loc.start.percentage * 100) + "%";
+                }
+
+                // D. Combine
+                if (chapterName && pageStr) label = `${chapterName} (${pageStr})`;
+                else if (pageStr) label = pageStr; // "Page 5" or "50%"
+                else if (chapterName) label = chapterName;
+
+                bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
+                showNotification("Bookmark Saved");
+                document.getElementById('btn-bookmark').classList.add('active');
+            }
+            
+            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+                renderBookmarks();
+            }
+
+        } catch (error) {
+            console.error("Bookmark Error:", error);
+            if(error.name === 'SecurityError') {
+                showNotification("Storage Blocked (Security)");
+            } else {
+                showNotification("Error saving bookmark");
+            }
         }
     }
 
     function removeBookmark(cfi) {
-        let bookmarks = getBookmarks();
-        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
-        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-        
-        // Update UI if we are on that page
-        const currentCfi = rendition.currentLocation()?.start?.cfi;
-        if (currentCfi === cfi) {
-            document.getElementById('btn-bookmark').classList.remove('active');
-            showNotification("Bookmark Removed");
-        }
-        
-        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-            renderBookmarks();
-        }
+        try {
+            let bookmarks = getBookmarks();
+            bookmarks = bookmarks.filter(b => b.cfi !== cfi);
+            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+            
+            const currentLoc = rendition.currentLocation();
+            if (currentLoc && currentLoc.start.cfi === cfi) {
+                document.getElementById('btn-bookmark').classList.remove('active');
+                showNotification("Bookmark Removed");
+            }
+            
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+                renderBookmarks();
+            }
+        } catch(e) { console.error(e); }
     }
 
     function renderBookmarks() {
         const bookmarks = getBookmarks();
+        sidebarContent.innerHTML = ""; 
+
         if (bookmarks.length === 0) {
             sidebarContent.innerHTML = "<div class='sidebar-item' style='justify-content:center; color:#666;'>No bookmarks yet</div>";
             return;
@@ -443,7 +490,7 @@
             item.className = "sidebar-item";
             
             let textSpan = document.createElement("span");
-            textSpan.innerText = bm.label || `Bookmark ${index + 1}`;
+            textSpan.innerText = bm.label;
             textSpan.style.overflow = "hidden";
             textSpan.style.whiteSpace = "nowrap";
             textSpan.style.textOverflow = "ellipsis";
