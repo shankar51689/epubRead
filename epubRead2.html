@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Turn.js Style EPUB Reader</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+
+    <style>
+        /* --- STYLING REFERENCES FROM YOUR STYLE.CSS --- */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+
+        body {
+            margin: 0; padding: 0; height: 100vh;
+            display: flex; flex-direction: column;
+            background: #2b2b2b; 
+            font-family: "Poppins", sans-serif; /* From style.css */
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #toolbar {
+            height: 50px; background: #1e1e1e;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 20px; z-index: 2000;
+            border-bottom: 1px solid #333;
+        }
+        #toolbar button {
+            background: #c0392b; /* Hard cover red from style.css */
+            color: white; border: none;
+            padding: 8px 16px; border-radius: 4px;
+            cursor: pointer; font-weight: bold; font-family: "Poppins", sans-serif;
+        }
+
+        #book-container {
+            flex-grow: 1; position: relative;
+            display: flex; justify-content: center; align-items: center;
+            background: #333;
+            overflow: hidden;
+            perspective: 4000px; /* Deep perspective for 3D curls */
+        }
+
+        #book {
+            position: relative;
+            width: 100%; height: 100%;
+            max-width: 1000px; /* Matches .flipbook width from style.css */
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        #viewer {
+            width: 100%; height: 100%;
+        }
+
+        /* --- THE PAGE PEEL LAYERS --- */
+        
+        /* The peel represents the back of the page being turned */
+        #page-peel {
+            position: absolute;
+            top: 0; right: 0;
+            width: 0; height: 100%; /* Initially 0 */
+            z-index: 100;
+            pointer-events: none;
+            background: #f8f8f8;
+            overflow: hidden;
+            display: none;
+            /* Critical for smooth edges */
+            will-change: transform, width, height, clip-path; 
+            transform-origin: right center;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.1);
+        }
+
+        /* The gradient inside the curl (simulating lighting) */
+        #peel-shadow {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(to left, rgba(0,0,0,0.2), rgba(0,0,0,0.05) 20%, transparent 40%);
+        }
+        
+        /* The content of the NEXT page (revealed underneath) */
+        #reveal-layer {
+            position: absolute; inset: 0;
+            z-index: 50;
+            background: #fff;
+            display: none;
+        }
+
+        #loading {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ccc; font-weight: bold;
+        }
+
+        /* Styling for the hard cover reference */
+        .hard-cover-spine {
+            position: absolute; left: 0; top: 0; bottom: 0; width: 10px;
+            background: linear-gradient(to right, #8e281d, #c0392b);
+            z-index: 200;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="toolbar">
+    <button onclick="prev()">Previous</button>
+    <span style="color:#888; font-size: 0.8rem;">Drag Corners to Flip</span>
+    <button onclick="next()">Next</button>
+</div>
+
+<div id="loading">Loading Library...</div>
+
+<div id="book-container">
+    <div id="book">
+        <div class="hard-cover-spine"></div>
+        <div id="viewer"></div>
+        
+        <div id="reveal-layer"></div>
+
+        <div id="page-peel">
+            <div id="peel-shadow"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let book, rendition;
+    let isDragging = false;
+    let startX, startY;
+    let width, height;
+    
+    // Config
+    const maxCurl = 0.8; // Don't let it curl past 80% screen width manually
+
+    // Elements
+    const peel = document.getElementById('page-peel');
+    const peelShadow = document.getElementById('peel-shadow');
+    const revealLayer = document.getElementById('reveal-layer');
+    const viewerEl = document.getElementById('viewer');
+
+    // Moby Dick Default
+    const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
+
+    function init(url) {
+        book = ePub(url);
+        rendition = book.renderTo("viewer", {
+            width: "100%", height: "100%", flow: "paginated"
+        });
+
+        rendition.display().then(() => {
+            document.getElementById('loading').style.display = 'none';
+            width = viewerEl.clientWidth;
+            height = viewerEl.clientHeight;
+            setupGestures();
+            
+            // Apply "Paper" theme
+            rendition.themes.register("paper", { body: { background: "#fff", "font-family": "Poppins" } });
+            rendition.themes.select("paper");
+        });
+    }
+
+    function setupGestures() {
+        // We attach to the wrapper to catch events over the iframe
+        const container = document.getElementById('book');
+
+        container.addEventListener('mousedown', onStart);
+        container.addEventListener('touchstart', onStart, {passive: false});
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchmove', onMove, {passive: false});
+
+        window.addEventListener('mouseup', onEnd);
+        window.addEventListener('touchend', onEnd);
+    }
+
+    function onStart(e) {
+        // Only start if clicking near the right edge for next, left for prev
+        const x = e.pageX || e.touches[0].pageX;
+        const y = e.pageY || e.touches[0].pageY;
+        const rect = viewerEl.getBoundingClientRect();
+        
+        startX = x - rect.left;
+        startY = y - rect.top;
+        width = rect.width;
+        height = rect.height;
+
+        // "Reference from turn.js": Corner detection
+        // Only trigger if we are in the outer 20% of the page
+        if (startX > width * 0.8 || startX < width * 0.2) {
+            isDragging = true;
+            peel.style.display = 'block';
+            peel.style.transition = 'none'; // Disable transition for direct control
+        }
+    }
+
+    function onMove(e) {
+        if (!isDragging) return;
+        e.preventDefault(); // Stop scrolling
+
+        const x = (e.pageX || e.touches[0].pageX) - viewerEl.getBoundingClientRect().left;
+        const y = (e.pageY || e.touches[0].pageY) - viewerEl.getBoundingClientRect().top;
+
+        // Calculate delta
+        const dx = x - startX;
+        
+        // Logic: Similar to Turn.js "Fold"
+        // We calculate the angle to the corner
+        if (dx < 0) { // Dragging Left (Next Page)
+            updateCurl(Math.abs(dx), y);
+        }
+    }
+
+    function onEnd(e) {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        // Simple threshold for now
+        const currentWidth = parseFloat(peel.style.width || 0);
+        
+        if (currentWidth > width * 0.3) {
+            finishFlip();
+        } else {
+            resetFlip();
+        }
+    }
+
+    /* THE MATH: Simulates the Turn.js _fold function logic.
+       Instead of complex clipping, we use rotation + width translation
+       to simulate the paper curling up from a corner.
+    */
+    function updateCurl(dragDist, currentY) {
+        // Clamp drag
+        const progress = Math.min(dragDist / width, 1);
+        
+        // 1. Calculate Angle based on Y position relative to center
+        // If dragging high, curl down. If dragging low, curl up.
+        // Turn.js uses the corners: (0,0) or (0, height)
+        const centerY = height / 2;
+        const relY = (currentY - centerY) / centerY; // -1 (top) to 1 (bottom)
+        const angle = relY * 20; // Max 20 degree tilt
+
+        // 2. Visual Updates
+        // The Peel width grows as we drag
+        const peelW = progress * width * 1.5; 
+        
+        peel.style.width = `${peelW}px`;
+        
+        // 3. Transform Origin matches the drag corner
+        // If we started top-right, origin is top-right.
+        const originY = startY < centerY ? 'top' : 'bottom';
+        peel.style.transformOrigin = `right ${originY}`;
+
+        // 4. Apply Transform
+        // We move it slightly left and rotate it
+        peel.style.transform = `
+            translateX(0px) 
+            rotate(${angle}deg)
+        `;
+
+        // 5. Update Shadow Gradient to follow angle
+        // This mimics the turn.js 'gradients: true' option
+        const shadowOpacity = Math.max(0, 0.4 - (progress * 0.2));
+        peelShadow.style.background = `linear-gradient(${90 + angle}deg, rgba(0,0,0,${shadowOpacity}), transparent 30%)`;
+        
+        // 6. Reveal Layer (The "Hard" white underneath)
+        // In a real turn.js integration, this would contain the next page's HTML.
+        // Since epub.js can't render two pages easily, we keep it white (or text color).
+        revealLayer.style.display = 'block';
+    }
+
+    function finishFlip() {
+        peel.style.transition = "all 0.5s cubic-bezier(0.2, 1, 0.3, 1)";
+        
+        // Animate fully across
+        peel.style.width = `${width * 1.5}px`;
+        peel.style.transform = `translateX(-${width}px) rotate(0deg)`;
+        
+        // Trigger EPUB next
+        setTimeout(() => {
+            rendition.next();
+            // Reset after animation
+            setTimeout(() => {
+                peel.style.display = 'none';
+                peel.style.width = '0px';
+                peel.style.transform = 'none';
+                revealLayer.style.display = 'none';
+            }, 100);
+        }, 300);
+    }
+
+    function resetFlip() {
+        peel.style.transition = "all 0.3s ease-out";
+        peel.style.width = '0px';
+        
+        setTimeout(() => {
+            peel.style.display = 'none';
+            revealLayer.style.display = 'none';
+        }, 300);
+    }
+
+    // Button Controls
+    function next() {
+        // Simulate a "perfect" corner drag
+        startX = width; 
+        startY = height * 0.8; // Bottom corner
+        width = viewerEl.clientWidth;
+        height = viewerEl.clientHeight;
+        
+        peel.style.display = 'block';
+        peel.style.transition = "all 0.6s cubic-bezier(0.25, 1, 0.5, 1)";
+        
+        // Force reflow
+        peel.offsetHeight; 
+        
+        // Trigger the visual state of a full flip
+        updateCurl(width, startY);
+        finishFlip();
+    }
+
+    function prev() {
+        rendition.prev();
+    }
+
+    // Initialize
+    const params = new URLSearchParams(window.location.search);
+    const url = params.get("url") || DEFAULT_BOOK;
+    init(decodeURIComponent(url));
+
+</script>
+</body>
+</html>
