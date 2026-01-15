@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Responsive 3D Reader</title>
+    <title>Advanced 3D Reader</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
@@ -17,6 +17,7 @@
             --paper-color: #fdfaf5;
             --paper-text: #000;
             --accent-color: #c0392b;
+            --sidebar-bg: #2a2a2a;
         }
 
         body.dark-mode {
@@ -25,6 +26,7 @@
             --text-color: #aaa;
             --paper-color: #333333;
             --paper-text: #e0e0e0;
+            --sidebar-bg: #1f1f1f;
         }
 
         body {
@@ -35,7 +37,7 @@
             transition: background 0.3s;
         }
 
-        /* ===== RESPONSIVE TOOLBAR ===== */
+        /* ===== TOOLBAR ===== */
         #toolbar {
             background: var(--toolbar-bg);
             display: flex; align-items: center; justify-content: space-between;
@@ -58,7 +60,6 @@
         #toolbar button:active { transform: scale(0.95); background: #666; }
         #toolbar button.active { background: var(--accent-color); color: white; }
 
-        /* Search Bar Logic */
         .search-container { position: relative; display: flex; align-items: center; }
         
         #search-input {
@@ -66,78 +67,72 @@
             color: white; padding: 0 10px; border-radius: 4px;
             width: 0; height: 36px; opacity: 0;
             transition: all 0.3s ease;
-            pointer-events: none;
-            position: absolute; right: 0;
+            pointer-events: none; position: absolute; right: 0;
         }
         
         .search-container.active #search-input {
-            width: 150px; opacity: 1; pointer-events: all;
-            right: 40px; 
+            width: 150px; opacity: 1; pointer-events: all; right: 40px; 
         }
         
-        /* Helper Text (Swipe/Drag) */
         .helper-text { color:#666; font-size:12px; margin:0 10px; white-space: nowrap; }
 
         /* ===== MOBILE OPTIMIZATIONS ===== */
         @media (max-width: 768px) {
             #toolbar {
-                flex-wrap: wrap;
-                height: auto;
-                padding: 10px;
-                gap: 10px;
-                justify-content: center;
+                flex-wrap: wrap; height: auto; padding: 10px; gap: 10px; justify-content: center;
             }
-
-            /* Group 1: Meta Tools (Top) */
-            .group-meta { 
-                width: 100%; 
-                justify-content: space-between; 
-                order: 1; 
-                border-bottom: 1px solid #333; 
-                padding-bottom: 8px; 
-            }
-
-            /* Group 2: Navigation (Bottom Left) */
+            .group-meta { width: 100%; justify-content: space-between; order: 1; border-bottom: 1px solid #333; padding-bottom: 8px; }
             .group-nav { order: 2; flex-grow: 1; justify-content: flex-start; }
-
-            /* Group 3: Settings (Bottom Right) */
             .group-settings { order: 3; flex-grow: 1; justify-content: flex-end; }
-
             .helper-text { display: none; }
-
-            .search-container.active #search-input {
-                width: 200px;
-                background: var(--toolbar-bg);
-                z-index: 10;
-            }
+            .search-container.active #search-input { width: 200px; background: var(--toolbar-bg); z-index: 10; }
         }
 
-        /* ===== SIDEBAR & OVERLAYS ===== */
+        /* ===== SIDEBAR (TOC & BOOKMARKS) ===== */
         #sidebar {
             position: absolute; top: 0; left: 0; bottom: 0;
-            width: 80%; max-width: 300px; background: #2a2a2a;
-            z-index: 2500;
-            transform: translateX(-100%);
+            width: 85%; max-width: 320px; background: var(--sidebar-bg);
+            z-index: 2500; transform: translateX(-100%);
             transition: transform 0.3s ease;
             box-shadow: 2px 0 15px rgba(0,0,0,0.5);
             display: flex; flex-direction: column;
+            border-right: 1px solid #333;
         }
         #sidebar.open { transform: translateX(0); }
         
         .sidebar-header {
-            padding: 15px; background: #222; color: #fff;
+            padding: 15px; background: rgba(0,0,0,0.2); color: #fff;
             display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #333; font-weight: bold;
+            border-bottom: 1px solid #444; font-weight: bold;
         }
-        
+
+        /* Tabs */
+        .sidebar-tabs {
+            display: flex; background: rgba(0,0,0,0.2);
+        }
+        .sidebar-tab {
+            flex: 1; padding: 12px; text-align: center;
+            cursor: pointer; color: #888; background: transparent; border: none;
+            border-bottom: 2px solid transparent; transition: all 0.3s;
+            font-weight: bold;
+        }
+        .sidebar-tab.active { color: var(--accent-color); border-bottom: 2px solid var(--accent-color); background: rgba(255,255,255,0.05); }
+
         #sidebar-content { overflow-y: auto; flex-grow: 1; }
 
         .sidebar-item {
-            padding: 12px 15px; border-bottom: 1px solid #333;
+            padding: 14px 15px; border-bottom: 1px solid #333;
             color: #ccc; cursor: pointer; font-size: 14px;
+            display: flex; justify-content: space-between; align-items: center;
+            transition: background 0.2s;
         }
-        .sidebar-item:hover { background: #333; color: white; }
-        .sidebar-item.result { border-left: 3px solid var(--accent-color); background: #252525; }
+        .sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
+        .sidebar-item.result { border-left: 3px solid var(--accent-color); background: rgba(0,0,0,0.2); }
+        
+        .bookmark-delete {
+            color: #666; padding: 5px; cursor: pointer;
+        }
+        .bookmark-delete:hover { color: #c0392b; }
 
         #sidebar-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -160,7 +155,7 @@
             transition: background 0.3s;
         }
 
-        /* ===== PEEL ANIMATION ELEMENTS ===== */
+        /* ===== ANIMATION ELEMENTS ===== */
         #page-peel {
             position: absolute; top: 0; width: 100%; height: 100%;
             z-index: 100; pointer-events: none; display: none;
@@ -169,24 +164,20 @@
             box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
             transition: background 0.3s;
         }
-
         #peel-gradient {
             position: absolute; inset: 0;
             background: linear-gradient(to left, rgba(0,0,0,0.2), rgba(255,255,255,0.4) 15%, transparent 100%);
         }
-
         #drop-shadow {
             position: absolute; top: 0; width: 100%; height: 100%;
             z-index: 50; background: rgba(0,0,0,0.4);
             display: none; pointer-events: none; transition: opacity 0.1s;
         }
-
         #loading {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             color: #888; z-index: 20; font-family: sans-serif;
         }
-
         #notification {
             position: absolute; bottom: 30px; left: 50%;
             transform: translateX(-50%);
@@ -204,7 +195,7 @@
 <div id="toolbar">
     <div class="toolbar-group group-meta">
         <div style="display:flex; gap:8px;">
-            <button onclick="toggleSidebar()" title="Table of Contents"><i class="fas fa-list"></i></button>
+            <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
         </div>
         
@@ -231,8 +222,12 @@
 
 <div id="sidebar">
     <div class="sidebar-header">
-        <span id="sidebar-title">Contents</span>
+        <span id="sidebar-title">Library</span>
         <i class="fas fa-times" onclick="toggleSidebar()" style="cursor:pointer"></i>
+    </div>
+    <div class="sidebar-tabs">
+        <button id="tab-toc" class="sidebar-tab active" onclick="switchTab('toc')">Chapters</button>
+        <button id="tab-bookmarks" class="sidebar-tab" onclick="switchTab('bookmarks')">Bookmarks</button>
     </div>
     <div id="sidebar-content"></div>
 </div>
@@ -254,9 +249,11 @@
     let startX = 0;
     let width = window.innerWidth;
     
-    // Zoom State
+    // State
     let currentFontSize = 100;
     let isDarkMode = false;
+    let currentTab = 'toc'; // 'toc' or 'bookmarks'
+    let navigationData = []; // Store TOC for easy access
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -282,8 +279,14 @@
             document.getElementById('loading').style.display = 'none';
             setupGestures();
             setupThemes();
-            generateTOC();
             
+            // Load TOC
+            book.loaded.navigation.then(function(toc) {
+                navigationData = toc;
+                generateTOC();
+            });
+
+            // Save location & check bookmark
             rendition.on('relocated', (location) => {
                 localStorage.setItem('book-location', location.start.cfi);
                 checkBookmarkStatus(location.start.cfi);
@@ -293,7 +296,7 @@
         book.ready.then(() => { book.locations.generate(1000); });
     }
 
-    /* --- UI & ZOOM FUNCTIONS --- */
+    /* --- THEMES & ZOOM (FIXED) --- */
     function setupThemes() {
         rendition.themes.register("light", { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } });
         rendition.themes.register("dark", { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } });
@@ -311,52 +314,93 @@
             rendition.themes.select("light");
             peel.style.background = "#fdfaf5";
         }
-        
-        // FIX: Re-apply font size after theme switch ensures zoom persists
         rendition.themes.fontSize(currentFontSize + "%");
     }
 
     function changeFontSize(amount) {
-        // Calculate new size
-        currentFontSize += amount;
-        
-        // Clamp between 50% and 300%
-        if(currentFontSize < 50) currentFontSize = 50;
-        if(currentFontSize > 300) currentFontSize = 300;
-
-        // Apply
+        currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         rendition.themes.fontSize(currentFontSize + "%");
         showNotification(`Zoom: ${currentFontSize}%`);
     }
 
-    /* --- OTHER UI LOGIC --- */
+    /* --- SIDEBAR & TABS --- */
     function toggleSidebar() {
         sidebar.classList.toggle('open');
         sidebarOverlay.classList.toggle('active');
-    }
-
-    function toggleSearch() {
-        searchContainer.classList.toggle('active');
-        if(searchContainer.classList.contains('active')) {
-            searchInput.focus();
+        if(sidebar.classList.contains('open')) {
+            // Refresh current tab
+            switchTab(currentTab);
         }
     }
 
+    function switchTab(tab) {
+        currentTab = tab;
+        document.getElementById('tab-toc').classList.toggle('active', tab === 'toc');
+        document.getElementById('tab-bookmarks').classList.toggle('active', tab === 'bookmarks');
+        
+        sidebarContent.innerHTML = ""; // Clear
+        
+        if (tab === 'toc') generateTOC();
+        else renderBookmarks();
+    }
+
     function generateTOC() {
-        document.getElementById('sidebar-title').innerText = "Table of Contents";
-        sidebarContent.innerHTML = "";
-        book.loaded.navigation.then(function(toc) {
-            toc.forEach(function(chapter) {
-                let item = document.createElement("div");
-                item.className = "sidebar-item";
-                item.innerText = chapter.label.trim();
-                item.onclick = function() {
-                    rendition.display(chapter.href);
-                    toggleSidebar();
-                };
-                sidebarContent.appendChild(item);
-            });
+        if(navigationData.length === 0) {
+            sidebarContent.innerHTML = "<div class='sidebar-item'>No Table of Contents</div>";
+            return;
+        }
+        navigationData.forEach(chapter => {
+            let item = document.createElement("div");
+            item.className = "sidebar-item";
+            item.innerText = chapter.label.trim();
+            item.onclick = () => {
+                rendition.display(chapter.href);
+                toggleSidebar();
+            };
+            sidebarContent.appendChild(item);
         });
+    }
+
+    function renderBookmarks() {
+        const bookmarks = getBookmarks();
+        if (bookmarks.length === 0) {
+            sidebarContent.innerHTML = "<div class='sidebar-item' style='justify-content:center; color:#666;'>No bookmarks yet</div>";
+            return;
+        }
+
+        bookmarks.forEach((bm, index) => {
+            let item = document.createElement("div");
+            item.className = "sidebar-item";
+            
+            let textSpan = document.createElement("span");
+            // Use label if available, or fall back to "Bookmark X"
+            textSpan.innerText = bm.label || `Bookmark ${index + 1}`;
+            textSpan.style.overflow = "hidden";
+            textSpan.style.whiteSpace = "nowrap";
+            textSpan.style.textOverflow = "ellipsis";
+            
+            let trashIcon = document.createElement("i");
+            trashIcon.className = "fas fa-trash bookmark-delete";
+            trashIcon.onclick = (e) => {
+                e.stopPropagation();
+                removeBookmark(bm.cfi);
+            };
+
+            item.appendChild(textSpan);
+            item.appendChild(trashIcon);
+            
+            item.onclick = () => {
+                rendition.display(bm.cfi);
+                toggleSidebar();
+            };
+            sidebarContent.appendChild(item);
+        });
+    }
+
+    /* --- SEARCH --- */
+    function toggleSearch() {
+        searchContainer.classList.toggle('active');
+        if(searchContainer.classList.contains('active')) searchInput.focus();
     }
 
     function handleSearch(e) {
@@ -366,9 +410,13 @@
             showNotification("Searching...");
             toggleSearch(); 
             
+            // Switch sidebar to search mode temporary (or just use TOC area)
+            sidebar.classList.add('open');
+            sidebarOverlay.classList.add('active');
+            // Hide tabs for search result view
+            document.querySelector('.sidebar-tabs').style.display = 'none';
             document.getElementById('sidebar-title').innerText = "Search Results";
             sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
-            if(!sidebar.classList.contains('open')) toggleSidebar();
 
             Promise.all(
                 book.spine.spineItems.map(item => 
@@ -378,9 +426,24 @@
                 )
             ).then(results => {
                 sidebarContent.innerHTML = "";
+                // Add back button
+                let backBtn = document.createElement("div");
+                backBtn.className = "sidebar-item";
+                backBtn.style.background = "#333";
+                backBtn.innerHTML = "<i class='fas fa-arrow-left'></i> Back to Library";
+                backBtn.onclick = () => {
+                    document.querySelector('.sidebar-tabs').style.display = 'flex';
+                    document.getElementById('sidebar-title').innerText = "Library";
+                    switchTab(currentTab);
+                };
+                sidebarContent.appendChild(backBtn);
+
                 const allResults = [].concat.apply([], results);
                 if(allResults.length === 0) {
-                    sidebarContent.innerHTML = "<div class='sidebar-item'>No results found.</div>";
+                    let msg = document.createElement("div");
+                    msg.className = "sidebar-item";
+                    msg.innerText = "No results found.";
+                    sidebarContent.appendChild(msg);
                     return;
                 }
                 allResults.forEach(result => {
@@ -388,9 +451,13 @@
                     item.className = "sidebar-item result";
                     const excerpt = result.excerpt.replace(query, `<b>${query}</b>`);
                     item.innerHTML = `...${excerpt}...`;
-                    item.onclick = function() {
+                    item.onclick = () => {
                         rendition.display(result.cfi);
                         toggleSidebar();
+                        // Reset sidebar state
+                        document.querySelector('.sidebar-tabs').style.display = 'flex';
+                        document.getElementById('sidebar-title').innerText = "Library";
+                        switchTab(currentTab);
                     };
                     sidebarContent.appendChild(item);
                 });
@@ -398,25 +465,67 @@
         }
     }
 
+    /* --- BOOKMARK LOGIC --- */
+    function getBookmarks() {
+        const stored = localStorage.getItem('bookmarks_v2');
+        return stored ? JSON.parse(stored) : [];
+    }
+
     function saveBookmark() {
-        const currentLoc = rendition.currentLocation().start.cfi;
-        const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || "[]");
+        const loc = rendition.currentLocation();
+        const cfi = loc.start.cfi;
+        const bookmarks = getBookmarks();
         
-        if(bookmarks.includes(currentLoc)) {
-            bookmarks.splice(bookmarks.indexOf(currentLoc), 1);
-            showNotification("Bookmark Removed");
-            document.getElementById('btn-bookmark').classList.remove('active');
+        // Check if exists
+        const existingIndex = bookmarks.findIndex(b => b.cfi === cfi);
+        
+        if (existingIndex > -1) {
+            // Remove
+            removeBookmark(cfi);
         } else {
-            bookmarks.push(currentLoc);
-            showNotification("Bookmarked");
+            // Add
+            // Try to find a chapter label
+            let label = "Page " + (loc.start.displayed.page || "?");
+            
+            // Try matching spine href to TOC
+            const spineItem = book.spine.get(cfi);
+            if (spineItem && navigationData.length > 0) {
+                const navItem = navigationData.find(n => n.href.includes(spineItem.href));
+                if (navItem) label = navItem.label;
+            }
+
+            bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
+            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+            showNotification("Bookmark Saved");
             document.getElementById('btn-bookmark').classList.add('active');
+            
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+                renderBookmarks();
+            }
         }
-        localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+    }
+
+    function removeBookmark(cfi) {
+        let bookmarks = getBookmarks();
+        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
+        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+        
+        // Update UI
+        const currentCfi = rendition.currentLocation().start.cfi;
+        if (currentCfi === cfi) {
+            document.getElementById('btn-bookmark').classList.remove('active');
+            showNotification("Bookmark Removed");
+        }
+        
+        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+            renderBookmarks();
+        }
     }
 
     function checkBookmarkStatus(cfi) {
-        const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || "[]");
-        if(bookmarks.includes(cfi)) document.getElementById('btn-bookmark').classList.add('active');
+        const bookmarks = getBookmarks();
+        const exists = bookmarks.some(b => b.cfi === cfi);
+        if(exists) document.getElementById('btn-bookmark').classList.add('active');
         else document.getElementById('btn-bookmark').classList.remove('active');
     }
 
