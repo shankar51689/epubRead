@@ -272,7 +272,9 @@
         book = ePub(url);
         rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
 
-        const savedLocation = localStorage.getItem('book-location');
+        // Safe location loading
+        let savedLocation = null;
+        try { savedLocation = localStorage.getItem('book-location'); } catch(e) {}
         const startOptions = savedLocation ? { cfi: savedLocation } : {};
 
         rendition.display(startOptions.cfi).then(() => {
@@ -288,7 +290,7 @@
 
             // Save location & check bookmark
             rendition.on('relocated', (location) => {
-                localStorage.setItem('book-location', location.start.cfi);
+                try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
             });
         });
@@ -361,13 +363,13 @@
         });
     }
 
-    /* --- ROBUST BOOKMARK LOGIC --- */
+    /* --- FIXED ROBUST BOOKMARK LOGIC --- */
     function getBookmarks() {
         try {
             const stored = localStorage.getItem('bookmarks_v2');
             return stored ? JSON.parse(stored) : [];
         } catch(e) {
-            console.error("Bookmark storage error", e);
+            console.warn("Storage access failed");
             return [];
         }
     }
@@ -376,16 +378,16 @@
         try {
             const loc = rendition.currentLocation();
             
-            // Safety Check
+            // 1. Safety Check
             if (!loc || !loc.start || !loc.start.cfi) {
-                showNotification("Wait, book loading...");
+                showNotification("Please wait, loading...");
                 return;
             }
 
             const cfi = loc.start.cfi;
             let bookmarks = getBookmarks();
             
-            // Check if exists (Toggle Logic)
+            // 2. Check if already exists (Toggle Logic)
             const index = bookmarks.findIndex(b => b.cfi === cfi);
             
             if (index > -1) {
@@ -395,26 +397,27 @@
                 document.getElementById('btn-bookmark').classList.remove('active');
             } else {
                 // ADD
-                // Safe label generation
                 let label = "Bookmark";
                 let chapterName = "";
                 let progressStr = "";
 
-                // 1. Try Chapter Name
+                // A. Try Chapter Name (Safe Search)
                 if (navigationData) {
-                    // Try to match CFI to Chapter
-                    const spineItem = book.spine.get(cfi);
-                    if(spineItem) {
-                         const tocItem = navigationData.find(n => n.href.includes(spineItem.href));
-                         if(tocItem) chapterName = tocItem.label.trim();
-                    }
+                    try {
+                        const spineItem = book.spine.get(cfi);
+                        if(spineItem && spineItem.href) {
+                             const tocItem = navigationData.find(n => n.href && n.href.includes(spineItem.href));
+                             if(tocItem) chapterName = tocItem.label.trim();
+                        }
+                    } catch(err) { console.log("Chapter lookup failed"); }
                 }
 
-                // 2. Try Percentage (Safe Fallback)
+                // B. Try Percentage (Safe Fallback)
                 if (loc.start.percentage) {
                     progressStr = Math.round(loc.start.percentage * 100) + "%";
                 }
 
+                // C. Construct Label
                 if (chapterName && progressStr) label = `${chapterName} (${progressStr})`;
                 else if (chapterName) label = chapterName;
                 else if (progressStr) label = `Location ${progressStr}`;
@@ -433,31 +436,38 @@
             }
 
         } catch (error) {
-            console.error(error);
-            showNotification("Error saving bookmark");
+            console.error("Bookmark Error:", error);
+            // Fallback for when localStorage is blocked (e.g. file:// protocol)
+            if(error.name === 'SecurityError' || error.name === 'QuotaExceededError') {
+                showNotification("Storage Disabled (Security)");
+            } else {
+                showNotification("Error saving bookmark");
+            }
         }
     }
 
     function removeBookmark(cfi) {
-        let bookmarks = getBookmarks();
-        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
-        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-        
-        // Update UI button if we are currently on that page
-        const currentLoc = rendition.currentLocation();
-        if (currentLoc && currentLoc.start.cfi === cfi) {
-            document.getElementById('btn-bookmark').classList.remove('active');
-            showNotification("Bookmark Removed");
-        }
-        
-        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-            renderBookmarks();
-        }
+        try {
+            let bookmarks = getBookmarks();
+            bookmarks = bookmarks.filter(b => b.cfi !== cfi);
+            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+            
+            // Update UI button if we are currently on that page
+            const currentLoc = rendition.currentLocation();
+            if (currentLoc && currentLoc.start.cfi === cfi) {
+                document.getElementById('btn-bookmark').classList.remove('active');
+                showNotification("Bookmark Removed");
+            }
+            
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
+                renderBookmarks();
+            }
+        } catch(e) { console.error(e); }
     }
 
     function renderBookmarks() {
         const bookmarks = getBookmarks();
-        sidebarContent.innerHTML = ""; // Clear existing
+        sidebarContent.innerHTML = ""; 
 
         if (bookmarks.length === 0) {
             sidebarContent.innerHTML = "<div class='sidebar-item' style='justify-content:center; color:#666;'>No bookmarks yet</div>";
