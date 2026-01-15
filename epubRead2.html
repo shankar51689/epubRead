@@ -392,26 +392,14 @@
             document.getElementById('btn-bookmark').classList.remove('active');
         } else {
             // Add
+            // Try to find a chapter label
             let label = "Bookmark";
-
-            // 1. Get correct page number from generated locations
-            const pageNum = book.locations.locationFromCfi(cfi);
-
-            // 2. Get Chapter Name
-            let chapterLabel = null;
-            const spineItem = book.spine.get(cfi);
-            if (spineItem && navigationData) {
-                 const tocItem = navigationData.find(n => n.href.includes(spineItem.href));
-                 if(tocItem) chapterLabel = tocItem.label.trim();
-            }
-
-            // 3. Construct Label
-            if (chapterLabel && pageNum) {
-                label = `${chapterLabel} (Page ${pageNum})`;
-            } else if (pageNum) {
-                label = `Page ${pageNum}`;
-            } else if (chapterLabel) {
-                label = chapterLabel;
+            if (loc.start.displayed && loc.start.displayed.page) {
+                label = `Page ${loc.start.displayed.page}`;
+            } else if (navigationData) {
+                // Fallback to finding chapter name from CFI
+                const chapter = navigationData.find(n => n.href && cfi.includes(n.href));
+                if(chapter) label = chapter.label;
             }
 
             bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
