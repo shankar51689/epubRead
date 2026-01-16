@@ -271,42 +271,29 @@
                 generateTOC();
             });
 
-            // --- CRITICAL FIX FOR MULTI-WORD SELECTION ---
             rendition.hooks.content.register(function(contents) {
-                // 1. Inject Styles for Highlight Colors
-                const style = contents.document.createElement("style");
-                style.innerHTML = `.epubjs-hl{background:rgba(255,255,0,.5)!important}`;
+                // Add basic highlight class styles
+                let style = contents.document.createElement('style');
+                style.innerHTML = `
+                    .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
+                `;
                 contents.document.head.appendChild(style);
                 
-                // 2. Apply Selection Mode (Drag Select CSS)
+                // Update selection mode
                 updateContentSelectionMode(contents);
-
-                // 3. LISTEN FOR MOUSEUP / TOUCHEND (This allows dragging multiple words)
-                const doc = contents.document;
-
-                function handleSelectionEnd(){
-                    if(!isHighlightMode) return;
-
-                    const sel = doc.getSelection();
-                    if(!sel || sel.isCollapsed) return;
-
-                    const range = sel.getRangeAt(0);
-                    if(!range || range.collapsed) return;
-
-                    // Convert Native Range to Epub CFI
-                    const cfiRange = contents.cfiFromRange(range);
-                    
-                    showHighlightMenu(cfiRange, contents);
-                }
-
-                doc.addEventListener("mouseup", handleSelectionEnd);
-                doc.addEventListener("touchend", handleSelectionEnd);
             });
 
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 hideHighlightMenu();
+            });
+
+            // FIXED: Don't highlight immediately. Show menu to confirm.
+            rendition.on('selected', (cfiRange, contents) => {
+                if (isHighlightMode) {
+                    showHighlightMenu(cfiRange, contents);
+                }
             });
             
             rendition.on('click', () => hideHighlightMenu());
@@ -348,7 +335,7 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
-                // STRICT CSS to enable multi-word drag
+                // STRICT CSS: Matches the reference code to ensure multi-word selection works
                 styleTag.innerHTML = `
                     * {
                         user-select: text !important;
@@ -386,6 +373,7 @@
         highlightMenu.style.display = "none";
     }
 
+    // FIXED: Confirms the selection from the menu
     function confirmHighlight() {
         if (!currentSelection.cfiRange) return;
         addHighlight(currentSelection.cfiRange);
@@ -446,11 +434,12 @@
             peel.style.background = "#fdfaf5";
         }
         setTimeout(() => { 
+            // Reuse changeFontSize logic to ensure highlights align
             changeFontSize(0); 
         }, 10);
     }
 
-    /* --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS --- */
+    // --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS ---
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         showNotification(`Zoom: ${currentFontSize}%`);
@@ -471,6 +460,7 @@
         // 4. Force redraw at current location, then re-add highlights
         if (currentCfi) {
              rendition.display(currentCfi).then(() => {
+                 // Wait a moment for layout to settle completely
                  setTimeout(() => {
                      loadHighlights(); // Re-add highlights to new coordinates
                  }, 150); 
