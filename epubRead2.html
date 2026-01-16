@@ -16,7 +16,8 @@
             --text-color: #eee;
             --paper-color: #fdfaf5;
             --paper-text: #000;
-            --accent-color: #c0392b;
+            /* CHANGED: Accent color to Gold/Yellow per reference */
+            --accent-color: #f1c40f; 
             --sidebar-bg: #2a2a2a;
         }
 
@@ -58,9 +59,10 @@
             transition: background 0.2s, transform 0.1s;
         }
         #toolbar button:active { transform: scale(0.95); background: #666; }
-        #toolbar button.active { background: var(--accent-color); color: white; }
         
-        #btn-highlight.active { background: #f1c40f; color: #333; box-shadow: 0 0 8px rgba(241, 196, 15, 0.6); }
+        /* CHANGED: Active button style for Gold theme */
+        #toolbar button.active { background: var(--accent-color); color: #000; }
+        #btn-highlight.active { background: var(--accent-color); color: #000; box-shadow: 0 0 8px rgba(241, 196, 15, 0.6); }
 
         .search-container { position: relative; display: flex; align-items: center; }
         
@@ -98,11 +100,11 @@
         }
 
         #highlight-menu button {
-            background: #f1c40f; color: #000; border: none;
+            background: var(--accent-color); color: #000; border: none;
             padding: 6px 12px; border-radius: 3px; font-weight: bold;
             cursor: pointer; font-size: 13px;
         }
-        #highlight-menu button:hover { background: #d4ac0d; }
+        #highlight-menu button:hover { opacity: 0.9; }
 
         /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
@@ -271,33 +273,48 @@
                 generateTOC();
             });
 
+            // ============================================
+            // === MULTI-WORD HIGHLIGHT FIX & THEMING ===
+            // ============================================
             rendition.hooks.content.register(function(contents) {
-                // Add basic highlight class styles
-                let style = contents.document.createElement('style');
+                // 1. Inject Styles: Yellow highlight color per your request
+                const style = contents.document.createElement("style");
                 style.innerHTML = `
-                    .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
+                    .epubjs-hl { background: rgba(255,255,0,0.5) !important; }
                 `;
                 contents.document.head.appendChild(style);
                 
-                // Update selection mode
+                // 2. Apply Selection Mode CSS (Drag Select behavior)
                 updateContentSelectionMode(contents);
+
+                // 3. MANUAL EVENT LISTENER FOR SELECTION
+                // This replaces the default 'selected' event which fired too early
+                const doc = contents.document;
+
+                function handleSelectionEnd(){
+                    if(!isHighlightMode) return;
+
+                    const sel = doc.getSelection();
+                    if(!sel || sel.isCollapsed) return;
+
+                    const range = sel.getRangeAt(0);
+                    if(!range || range.collapsed) return;
+
+                    // Convert Native Range to Epub CFI
+                    const cfiRange = contents.cfiFromRange(range);
+                    
+                    showHighlightMenu(cfiRange, contents);
+                }
+
+                // Listen for end of drag on mouse or touch
+                doc.addEventListener("mouseup", handleSelectionEnd);
+                doc.addEventListener("touchend", handleSelectionEnd);
             });
 
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 hideHighlightMenu();
-            });
-
-            rendition.on('selected', (cfiRange, contents) => {
-                if (isHighlightMode) {
-                    addHighlight(cfiRange);
-                    if(contents) {
-                        setTimeout(() => {
-                            contents.window.getSelection().removeAllRanges();
-                        }, 100);
-                    }
-                }
             });
             
             rendition.on('click', () => hideHighlightMenu());
@@ -313,11 +330,11 @@
         
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight ON: Drag to select text");
+            showNotification("Highlight ON: Select text");
             document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
-            showNotification("Highlight OFF: Swipe to turn pages");
+            showNotification("Highlight OFF");
             hideHighlightMenu();
             document.body.style.userSelect = "none";
         }
@@ -339,7 +356,7 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
-                // STRICT CSS: Force generic elements to be selectable to allow multi-word drag
+                // CSS to enable dragging across words
                 styleTag.innerHTML = `
                     * {
                         user-select: text !important;
@@ -365,9 +382,12 @@
     function showHighlightMenu(cfiRange, contents) {
         currentSelection.cfiRange = cfiRange;
         currentSelection.contents = contents;
+        
+        // Calculate position based on selection
         const range = contents.range(cfiRange);
         const rect = range.getBoundingClientRect();
         const viewerRect = viewer.getBoundingClientRect();
+        
         highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
         highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
         highlightMenu.style.display = "block";
@@ -437,12 +457,11 @@
             peel.style.background = "#fdfaf5";
         }
         setTimeout(() => { 
-            // Reuse changeFontSize logic to ensure highlights align
             changeFontSize(0); 
         }, 10);
     }
 
-    // --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS ---
+    /* --- ZOOM FIX (Reloads Highlights) --- */
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         showNotification(`Zoom: ${currentFontSize}%`);
@@ -451,7 +470,7 @@
         const loc = rendition.currentLocation();
         const currentCfi = loc && loc.start ? loc.start.cfi : null;
 
-        // 2. Remove ALL highlights visually (cleanup old coordinates)
+        // 2. Remove ALL highlights visually
         let storedHighlights = getStoredHighlights();
         storedHighlights.forEach(h => {
              rendition.annotations.remove(h, 'highlight');
@@ -463,9 +482,8 @@
         // 4. Force redraw at current location, then re-add highlights
         if (currentCfi) {
              rendition.display(currentCfi).then(() => {
-                 // Wait a moment for layout to settle completely
                  setTimeout(() => {
-                     loadHighlights(); // Re-add highlights to new coordinates
+                     loadHighlights(); 
                  }, 150); 
              });
         }
