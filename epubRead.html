@@ -59,6 +59,8 @@
         }
         #toolbar button:active { transform: scale(0.95); background: #666; }
         #toolbar button.active { background: var(--accent-color); color: white; }
+        
+        #btn-highlight.active { background: #f1c40f; color: #333; box-shadow: 0 0 8px rgba(241, 196, 15, 0.6); }
 
         .search-container { position: relative; display: flex; align-items: center; }
         
@@ -76,11 +78,35 @@
         
         .helper-text { color:#666; font-size:12px; margin:0 10px; white-space: nowrap; }
 
-        /* ===== MOBILE OPTIMIZATIONS ===== */
+        /* ===== HIGHLIGHT MENU ===== */
+        #highlight-menu {
+            position: absolute;
+            z-index: 3000;
+            background: #222;
+            padding: 5px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            display: none;
+            transform: translateX(-50%) translateY(-100%);
+            white-space: nowrap;
+        }
+        
+        #highlight-menu::after {
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -5px;
+            border-width: 5px; border-style: solid;
+            border-color: #222 transparent transparent transparent;
+        }
+
+        #highlight-menu button {
+            background: #f1c40f; color: #000; border: none;
+            padding: 6px 12px; border-radius: 3px; font-weight: bold;
+            cursor: pointer; font-size: 13px;
+        }
+        #highlight-menu button:hover { background: #d4ac0d; }
+
+        /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
-            #toolbar {
-                flex-wrap: wrap; height: auto; padding: 10px; gap: 10px; justify-content: center;
-            }
+            #toolbar { flex-wrap: wrap; height: auto; padding: 10px; gap: 10px; justify-content: center; }
             .group-meta { width: 100%; justify-content: space-between; order: 1; border-bottom: 1px solid #333; padding-bottom: 8px; }
             .group-nav { order: 2; flex-grow: 1; justify-content: flex-start; }
             .group-settings { order: 3; flex-grow: 1; justify-content: flex-end; }
@@ -88,105 +114,37 @@
             .search-container.active #search-input { width: 200px; background: var(--toolbar-bg); z-index: 10; }
         }
 
-        /* ===== SIDEBAR (TOC & BOOKMARKS) ===== */
         #sidebar {
             position: absolute; top: 0; left: 0; bottom: 0;
             width: 85%; max-width: 320px; background: var(--sidebar-bg);
             z-index: 2500; transform: translateX(-100%);
-            transition: transform 0.3s ease;
-            box-shadow: 2px 0 15px rgba(0,0,0,0.5);
-            display: flex; flex-direction: column;
-            border-right: 1px solid #333;
+            transition: transform 0.3s ease; box-shadow: 2px 0 15px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column; border-right: 1px solid #333;
         }
         #sidebar.open { transform: translateX(0); }
         
-        .sidebar-header {
-            padding: 15px; background: rgba(0,0,0,0.2); color: #fff;
-            display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #444; font-weight: bold;
-        }
-
-        /* Tabs */
-        .sidebar-tabs {
-            display: flex; background: rgba(0,0,0,0.2);
-        }
-        .sidebar-tab {
-            flex: 1; padding: 12px; text-align: center;
-            cursor: pointer; color: #888; background: transparent; border: none;
-            border-bottom: 2px solid transparent; transition: all 0.3s;
-            font-weight: bold;
-        }
+        .sidebar-header { padding: 15px; background: rgba(0,0,0,0.2); color: #fff; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; font-weight: bold; }
+        .sidebar-tabs { display: flex; background: rgba(0,0,0,0.2); }
+        .sidebar-tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: #888; background: transparent; border: none; border-bottom: 2px solid transparent; transition: all 0.3s; font-weight: bold; }
         .sidebar-tab.active { color: var(--accent-color); border-bottom: 2px solid var(--accent-color); background: rgba(255,255,255,0.05); }
-
         #sidebar-content { overflow-y: auto; flex-grow: 1; }
-
-        .sidebar-item {
-            padding: 14px 15px; border-bottom: 1px solid #333;
-            color: #ccc; cursor: pointer; font-size: 14px;
-            display: flex; justify-content: space-between; align-items: center;
-            transition: background 0.2s;
-        }
+        .sidebar-item { padding: 14px 15px; border-bottom: 1px solid #333; color: #ccc; cursor: pointer; font-size: 14px; display: flex; justify-content: space-between; align-items: center; transition: background 0.2s; }
         .sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
         .sidebar-item.result { border-left: 3px solid var(--accent-color); background: rgba(0,0,0,0.2); }
-        
-        .bookmark-delete {
-            color: #666; padding: 5px; cursor: pointer;
-        }
+        .bookmark-delete { color: #666; padding: 5px; cursor: pointer; }
         .bookmark-delete:hover { color: #c0392b; }
-
-        #sidebar-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-            z-index: 2400; display: none; backdrop-filter: blur(2px);
-        }
+        #sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2400; display: none; backdrop-filter: blur(2px); }
         #sidebar-overlay.active { display: block; }
 
         /* ===== BOOK VIEWPORT ===== */
-        #book-viewport {
-            flex-grow: 1; position: relative;
-            background: #252525; overflow: hidden;
-            display: flex; justify-content: center; align-items: center;
-            perspective: 2000px;
-        }
-
-        #viewer {
-            width: 100%; height: 100%;
-            background: var(--paper-color);
-            z-index: 10; position: absolute;
-            transition: background 0.3s;
-        }
-
-        /* ===== ANIMATION ELEMENTS ===== */
-        #page-peel {
-            position: absolute; top: 0; width: 100%; height: 100%;
-            z-index: 100; pointer-events: none; display: none;
-            background: var(--paper-color);
-            backface-visibility: hidden; will-change: transform, clip-path;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
-            transition: background 0.3s;
-        }
-        #peel-gradient {
-            position: absolute; inset: 0;
-            background: linear-gradient(to left, rgba(0,0,0,0.2), rgba(255,255,255,0.4) 15%, transparent 100%);
-        }
-        #drop-shadow {
-            position: absolute; top: 0; width: 100%; height: 100%;
-            z-index: 50; background: rgba(0,0,0,0.4);
-            display: none; pointer-events: none; transition: opacity 0.1s;
-        }
-        #loading {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            color: #888; z-index: 20; font-family: sans-serif;
-        }
-        #notification {
-            position: absolute; bottom: 30px; left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.85); color: white;
-            padding: 8px 16px; border-radius: 20px;
-            font-family: sans-serif; font-size: 13px;
-            opacity: 0; transition: opacity 0.3s;
-            pointer-events: none; z-index: 3000;
-        }
+        #book-viewport { flex-grow: 1; position: relative; background: #252525; overflow: hidden; display: flex; justify-content: center; align-items: center; perspective: 2000px; }
+        #viewer { width: 100%; height: 100%; background: var(--paper-color); z-index: 10; position: absolute; transition: background 0.3s; }
+        
+        #page-peel { position: absolute; top: 0; width: 100%; height: 100%; z-index: 100; pointer-events: none; display: none; background: var(--paper-color); backface-visibility: hidden; will-change: transform, clip-path; box-shadow: inset 0 0 20px rgba(0,0,0,0.1); transition: background 0.3s; }
+        #peel-gradient { position: absolute; inset: 0; background: linear-gradient(to left, rgba(0,0,0,0.2), rgba(255,255,255,0.4) 15%, transparent 100%); }
+        #drop-shadow { position: absolute; top: 0; width: 100%; height: 100%; z-index: 50; background: rgba(0,0,0,0.4); display: none; pointer-events: none; transition: opacity 0.1s; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #888; z-index: 20; font-family: sans-serif; }
+        #notification { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: white; padding: 8px 16px; border-radius: 20px; font-family: sans-serif; font-size: 13px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 3000; }
     </style>
 </head>
 
@@ -197,6 +155,7 @@
         <div style="display:flex; gap:8px;">
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
+            <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
         </div>
         
         <div class="search-container" id="search-container">
@@ -232,6 +191,10 @@
     <div id="sidebar-content"></div>
 </div>
 
+<div id="highlight-menu">
+    <button onclick="confirmHighlight()">Highlight Selection</button>
+</div>
+
 <div id="loading">Loading Book...</div>
 <div id="notification">Notification</div>
 
@@ -252,9 +215,12 @@
     // State
     let currentFontSize = 100;
     let isDarkMode = false;
-    let currentTab = 'toc'; // 'toc' or 'bookmarks'
-    let navigationData = []; // Store TOC for easy access
-    let locationsReady = false; // Flag to check if pagination is done
+    let currentTab = 'toc';
+    let navigationData = []; 
+    let isHighlightMode = false;
+    
+    // Selection State
+    let currentSelection = { cfiRange: null, contents: null };
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -266,14 +232,29 @@
     const sidebarContent = document.getElementById('sidebar-content');
     const searchContainer = document.getElementById('search-container');
     const searchInput = document.getElementById('search-input');
+    const highlightMenu = document.getElementById('highlight-menu');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
+
+    const THEMES = {
+        light: { 
+            body: { 
+                "color": "#000", "background": "#fdfaf5", "font-family": "Georgia",
+            },
+            "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
+        },
+        dark: { 
+            body: { 
+                "color": "#dcdcdc", "background": "#333333", "font-family": "Georgia",
+            },
+            "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
+        }
+    };
 
     function initReader(url) {
         book = ePub(url);
         rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
 
-        // Safe location loading
         let savedLocation = null;
         try { savedLocation = localStorage.getItem('book-location'); } catch(e) {}
         const startOptions = savedLocation ? { cfi: savedLocation } : {};
@@ -281,42 +262,173 @@
         rendition.display(startOptions.cfi).then(() => {
             document.getElementById('loading').style.display = 'none';
             setupGestures();
-            setupThemes();
-            
-            // Load TOC
+            registerThemes();
+            rendition.themes.select("light");
+            loadHighlights();
+
             book.loaded.navigation.then(function(toc) {
                 navigationData = toc;
                 generateTOC();
             });
 
-            // Save location & check bookmark
+            rendition.hooks.content.register(function(contents) {
+                // Add basic highlight class styles
+                let style = contents.document.createElement('style');
+                style.innerHTML = `
+                    .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
+                `;
+                contents.document.head.appendChild(style);
+                
+                // Update selection mode
+                updateContentSelectionMode(contents);
+            });
+
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
+                hideHighlightMenu();
             });
+
+            rendition.on('selected', (cfiRange, contents) => {
+                if (isHighlightMode) {
+                    addHighlight(cfiRange);
+                    if(contents) {
+                        setTimeout(() => {
+                            contents.window.getSelection().removeAllRanges();
+                        }, 100);
+                    }
+                }
+            });
+            
+            rendition.on('click', () => hideHighlightMenu());
         });
 
-        // 1. Force Location Generation for Page Numbers
-        book.ready.then(() => { 
-            // Generate locations (1000 characters per page default)
-            book.locations.generate(1000).then(() => {
-                locationsReady = true;
-                console.log("Locations generated");
+        book.ready.then(() => { book.locations.generate(1000); });
+    }
+
+    /* --- HIGHLIGHT LOGIC --- */
+    function toggleHighlightMode() {
+        isHighlightMode = !isHighlightMode;
+        const btn = document.getElementById('btn-highlight');
+        
+        if (isHighlightMode) {
+            btn.classList.add('active');
+            showNotification("Highlight ON: Drag to select text");
+            document.body.style.userSelect = "auto";
+        } else {
+            btn.classList.remove('active');
+            showNotification("Highlight OFF: Swipe to turn pages");
+            hideHighlightMenu();
+            document.body.style.userSelect = "none";
+        }
+
+        const contents = rendition.getContents();
+        if (contents) {
+            contents.forEach(content => updateContentSelectionMode(content));
+        }
+    }
+
+    function updateContentSelectionMode(content) {
+        if (!content || !content.document || !content.document.head) return;
+        
+        const doc = content.document;
+        const styleId = 'highlight-mode-override';
+        let styleTag = doc.getElementById(styleId);
+
+        if (isHighlightMode) {
+            if (!styleTag) {
+                styleTag = doc.createElement('style');
+                styleTag.id = styleId;
+                // STRICT CSS: Force generic elements to be selectable to allow multi-word drag
+                styleTag.innerHTML = `
+                    * {
+                        user-select: text !important;
+                        -webkit-user-select: text !important;
+                        cursor: text !important;
+                    }
+                    ::selection {
+                        background: rgba(255, 255, 0, 0.3) !important;
+                    }
+                `;
+                doc.head.appendChild(styleTag);
+            }
+        } else {
+            if (styleTag) {
+                styleTag.remove();
+            }
+            doc.body.style.cursor = "default";
+            doc.body.style.userSelect = "none";
+            doc.body.style.webkitUserSelect = "none";
+        }
+    }
+
+    function showHighlightMenu(cfiRange, contents) {
+        currentSelection.cfiRange = cfiRange;
+        currentSelection.contents = contents;
+        const range = contents.range(cfiRange);
+        const rect = range.getBoundingClientRect();
+        const viewerRect = viewer.getBoundingClientRect();
+        highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
+        highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
+        highlightMenu.style.display = "block";
+    }
+
+    function hideHighlightMenu() {
+        highlightMenu.style.display = "none";
+    }
+
+    function confirmHighlight() {
+        if (!currentSelection.cfiRange) return;
+        addHighlight(currentSelection.cfiRange);
+        if(currentSelection.contents) {
+            currentSelection.contents.window.getSelection().removeAllRanges();
+        }
+        hideHighlightMenu();
+    }
+
+    function addHighlight(cfiRange) {
+        rendition.annotations.add('highlight', cfiRange, {}, (e) => {
+            removeHighlight(cfiRange);
+        });
+
+        let highlights = getStoredHighlights();
+        if(!highlights.includes(cfiRange)){
+            highlights.push(cfiRange);
+            localStorage.setItem('highlights', JSON.stringify(highlights));
+        }
+    }
+
+    function removeHighlight(cfiRange) {
+        rendition.annotations.remove(cfiRange, 'highlight');
+        let highlights = getStoredHighlights();
+        highlights = highlights.filter(h => h !== cfiRange);
+        localStorage.setItem('highlights', JSON.stringify(highlights));
+        showNotification("Highlight Removed");
+    }
+
+    function loadHighlights() {
+        let highlights = getStoredHighlights();
+        highlights.forEach(cfiRange => {
+            rendition.annotations.add('highlight', cfiRange, {}, (e) => {
+                removeHighlight(cfiRange);
             });
         });
     }
 
-    /* --- THEMES & ZOOM --- */
-    function setupThemes() {
-        rendition.themes.register("light", { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } });
-        rendition.themes.register("dark", { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } });
-        rendition.themes.select("light");
+    function getStoredHighlights() {
+        try { return JSON.parse(localStorage.getItem('highlights') || "[]"); } catch (e) { return []; }
+    }
+
+    /* --- THEMES --- */
+    function registerThemes() {
+        rendition.themes.register("light", THEMES.light);
+        rendition.themes.register("dark", THEMES.dark);
     }
 
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         document.body.classList.toggle('dark-mode');
-        
+        registerThemes();
         if (isDarkMode) {
             rendition.themes.select("dark");
             peel.style.background = "#333333"; 
@@ -324,77 +436,120 @@
             rendition.themes.select("light");
             peel.style.background = "#fdfaf5";
         }
-        rendition.themes.fontSize(currentFontSize + "%");
+        setTimeout(() => { 
+            // Reuse changeFontSize logic to ensure highlights align
+            changeFontSize(0); 
+        }, 10);
     }
 
+    // --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS ---
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
-        rendition.themes.fontSize(currentFontSize + "%");
         showNotification(`Zoom: ${currentFontSize}%`);
+
+        // 1. Get current location
+        const loc = rendition.currentLocation();
+        const currentCfi = loc && loc.start ? loc.start.cfi : null;
+
+        // 2. Remove ALL highlights visually (cleanup old coordinates)
+        let storedHighlights = getStoredHighlights();
+        storedHighlights.forEach(h => {
+             rendition.annotations.remove(h, 'highlight');
+        });
+
+        // 3. Apply Size
+        rendition.themes.fontSize(currentFontSize + "%");
+
+        // 4. Force redraw at current location, then re-add highlights
+        if (currentCfi) {
+             rendition.display(currentCfi).then(() => {
+                 // Wait a moment for layout to settle completely
+                 setTimeout(() => {
+                     loadHighlights(); // Re-add highlights to new coordinates
+                 }, 150); 
+             });
+        }
     }
 
-    /* --- SIDEBAR & TABS --- */
+    /* --- GESTURE LOGIC --- */
+    function setupGestures() {
+        rendition.on("touchstart", e => {
+            if (isHighlightMode) return; 
+            startX = e.changedTouches[0].screenX; isDragging = true; width = window.innerWidth;
+            peel.style.transition = 'none'; dropShadow.style.transition = 'none';
+        });
+        
+        rendition.on("touchmove", e => {
+            if (isHighlightMode) return;
+            if (!isDragging) return;
+            if (e.preventDefault) e.preventDefault();
+            const diff = startX - e.changedTouches[0].screenX;
+            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
+        });
+        
+        rendition.on("touchend", e => {
+            if (isHighlightMode) return;
+            if (!isDragging) return; isDragging = false;
+            const diff = startX - e.changedTouches[0].screenX;
+            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
+        });
+        
+        rendition.on("mousedown", e => {
+            if (isHighlightMode) return; 
+            startX = e.screenX; isDragging = true; width = window.innerWidth;
+            peel.style.transition = 'none'; dropShadow.style.transition = 'none';
+        });
+        rendition.on("mousemove", e => {
+            if (isHighlightMode) return; 
+            if (!isDragging) return; e.preventDefault();
+            const diff = startX - e.screenX;
+            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
+        });
+        rendition.on("mouseup", e => {
+            if (isHighlightMode) return; 
+            if (!isDragging) return; isDragging = false;
+            const diff = startX - e.screenX;
+            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
+        });
+    }
+
+    /* --- SIDEBAR & UI (UNCHANGED) --- */
     function toggleSidebar() {
         sidebar.classList.toggle('open');
         sidebarOverlay.classList.toggle('active');
-        if(sidebar.classList.contains('open')) {
-            switchTab(currentTab);
-        }
+        if(sidebar.classList.contains('open')) switchTab(currentTab);
     }
 
     function switchTab(tab) {
         currentTab = tab;
         document.getElementById('tab-toc').classList.toggle('active', tab === 'toc');
         document.getElementById('tab-bookmarks').classList.toggle('active', tab === 'bookmarks');
-        
-        sidebarContent.innerHTML = ""; // Clear
-        
-        if (tab === 'toc') generateTOC();
-        else renderBookmarks();
+        sidebarContent.innerHTML = ""; 
+        if (tab === 'toc') generateTOC(); else renderBookmarks();
     }
 
     function generateTOC() {
         if(!navigationData || navigationData.length === 0) {
-            sidebarContent.innerHTML = "<div class='sidebar-item'>No Table of Contents</div>";
-            return;
+            sidebarContent.innerHTML = "<div class='sidebar-item'>No Table of Contents</div>"; return;
         }
         navigationData.forEach(chapter => {
             let item = document.createElement("div");
             item.className = "sidebar-item";
             item.innerText = chapter.label.trim();
-            item.onclick = () => {
-                rendition.display(chapter.href);
-                toggleSidebar();
-            };
+            item.onclick = () => { rendition.display(chapter.href); toggleSidebar(); };
             sidebarContent.appendChild(item);
         });
     }
 
-    /* --- FIXED BOOKMARK LOGIC (PAGE NUMBER) --- */
-    function getBookmarks() {
-        try {
-            const stored = localStorage.getItem('bookmarks_v2');
-            return stored ? JSON.parse(stored) : [];
-        } catch(e) {
-            console.warn("Storage access failed");
-            return [];
-        }
-    }
+    /* --- BOOKMARK LOGIC --- */
+    function getBookmarks() { try { return JSON.parse(localStorage.getItem('bookmarks_v2') || "[]"); } catch(e) { return []; } }
 
     function saveBookmark() {
         try {
             const loc = rendition.currentLocation();
-            
-            // 1. Safety Check
-            if (!loc || !loc.start || !loc.start.cfi) {
-                showNotification("Loading, please wait...");
-                return;
-            }
-
+            if (!loc || !loc.start) { showNotification("Loading..."); return; }
             const cfi = loc.start.cfi;
             let bookmarks = getBookmarks();
-            
-            // 2. Toggle Logic
             const index = bookmarks.findIndex(b => b.cfi === cfi);
             
             if (index > -1) {
@@ -402,12 +557,9 @@
                 showNotification("Bookmark Removed");
                 document.getElementById('btn-bookmark').classList.remove('active');
             } else {
-                // 3. GENERATE PAGE NUMBER LABEL
                 let label = "Bookmark";
                 let chapterName = "";
                 let pageStr = "";
-
-                // A. Try getting Chapter Name
                 if (navigationData) {
                     try {
                         const spineItem = book.spine.get(cfi);
@@ -417,98 +569,46 @@
                         }
                     } catch(err) {}
                 }
-
-                // B. Get Exact Page Number (Priority)
-                if (locationsReady) {
-                    // Get virtual page number
+                try {
                     const pageNum = book.locations.locationFromCfi(cfi);
-                    // Also get total pages to look nice "Page 5 of 200"
-                    // const total = book.locations.total; 
                     if (pageNum > 0) pageStr = `Page ${pageNum}`;
-                } 
-                
-                // C. Fallback if locations not ready yet
-                if (!pageStr && loc.start.percentage) {
-                    pageStr = Math.round(loc.start.percentage * 100) + "%";
-                }
+                } catch(e) {}
+                if (!pageStr && loc.start.percentage) pageStr = Math.round(loc.start.percentage * 100) + "%";
 
-                // D. Combine
                 if (chapterName && pageStr) label = `${chapterName} (${pageStr})`;
-                else if (pageStr) label = pageStr; // "Page 5" or "50%"
+                else if (pageStr) label = pageStr;
                 else if (chapterName) label = chapterName;
 
                 bookmarks.push({ cfi: cfi, label: label, created: Date.now() });
                 showNotification("Bookmark Saved");
                 document.getElementById('btn-bookmark').classList.add('active');
             }
-            
             localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-
-            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-                renderBookmarks();
-            }
-
-        } catch (error) {
-            console.error("Bookmark Error:", error);
-            if(error.name === 'SecurityError') {
-                showNotification("Storage Blocked (Security)");
-            } else {
-                showNotification("Error saving bookmark");
-            }
-        }
+            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') renderBookmarks();
+        } catch (error) { showNotification("Storage Error"); }
     }
 
     function removeBookmark(cfi) {
-        try {
-            let bookmarks = getBookmarks();
-            bookmarks = bookmarks.filter(b => b.cfi !== cfi);
-            localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
-            
-            const currentLoc = rendition.currentLocation();
-            if (currentLoc && currentLoc.start.cfi === cfi) {
-                document.getElementById('btn-bookmark').classList.remove('active');
-                showNotification("Bookmark Removed");
-            }
-            
-            if(sidebar.classList.contains('open') && currentTab === 'bookmarks') {
-                renderBookmarks();
-            }
-        } catch(e) { console.error(e); }
+        let bookmarks = getBookmarks();
+        bookmarks = bookmarks.filter(b => b.cfi !== cfi);
+        localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
+        const currentLoc = rendition.currentLocation();
+        if (currentLoc && currentLoc.start.cfi === cfi) document.getElementById('btn-bookmark').classList.remove('active');
+        if(sidebar.classList.contains('open') && currentTab === 'bookmarks') renderBookmarks();
     }
 
     function renderBookmarks() {
         const bookmarks = getBookmarks();
         sidebarContent.innerHTML = ""; 
-
-        if (bookmarks.length === 0) {
-            sidebarContent.innerHTML = "<div class='sidebar-item' style='justify-content:center; color:#666;'>No bookmarks yet</div>";
-            return;
-        }
-
-        bookmarks.forEach((bm, index) => {
+        if (bookmarks.length === 0) { sidebarContent.innerHTML = "<div class='sidebar-item'>No bookmarks yet</div>"; return; }
+        bookmarks.forEach((bm) => {
             let item = document.createElement("div");
             item.className = "sidebar-item";
-            
-            let textSpan = document.createElement("span");
-            textSpan.innerText = bm.label;
-            textSpan.style.overflow = "hidden";
-            textSpan.style.whiteSpace = "nowrap";
-            textSpan.style.textOverflow = "ellipsis";
-            
-            let trashIcon = document.createElement("i");
-            trashIcon.className = "fas fa-trash bookmark-delete";
-            trashIcon.onclick = (e) => {
-                e.stopPropagation();
-                removeBookmark(bm.cfi);
-            };
-
-            item.appendChild(textSpan);
-            item.appendChild(trashIcon);
-            
-            item.onclick = () => {
-                rendition.display(bm.cfi);
-                toggleSidebar();
-            };
+            let textSpan = document.createElement("span"); textSpan.innerText = bm.label;
+            let trashIcon = document.createElement("i"); trashIcon.className = "fas fa-trash bookmark-delete";
+            trashIcon.onclick = (e) => { e.stopPropagation(); removeBookmark(bm.cfi); };
+            item.appendChild(textSpan); item.appendChild(trashIcon);
+            item.onclick = () => { rendition.display(bm.cfi); toggleSidebar(); };
             sidebarContent.appendChild(item);
         });
     }
@@ -520,7 +620,6 @@
         else document.getElementById('btn-bookmark').classList.remove('active');
     }
 
-    /* --- SEARCH --- */
     function toggleSearch() {
         searchContainer.classList.toggle('active');
         if(searchContainer.classList.contains('active')) searchInput.focus();
@@ -532,7 +631,6 @@
             if(!query) return;
             showNotification("Searching...");
             toggleSearch(); 
-            
             sidebar.classList.add('open');
             sidebarOverlay.classList.add('active');
             document.querySelector('.sidebar-tabs').style.display = 'none';
@@ -548,8 +646,7 @@
             ).then(results => {
                 sidebarContent.innerHTML = "";
                 let backBtn = document.createElement("div");
-                backBtn.className = "sidebar-item";
-                backBtn.style.background = "#333";
+                backBtn.className = "sidebar-item"; backBtn.style.background = "#333";
                 backBtn.innerHTML = "<i class='fas fa-arrow-left'></i> Back to Library";
                 backBtn.onclick = () => {
                     document.querySelector('.sidebar-tabs').style.display = 'flex';
@@ -557,27 +654,13 @@
                     switchTab(currentTab);
                 };
                 sidebarContent.appendChild(backBtn);
-
                 const allResults = [].concat.apply([], results);
-                if(allResults.length === 0) {
-                    let msg = document.createElement("div");
-                    msg.className = "sidebar-item";
-                    msg.innerText = "No results found.";
-                    sidebarContent.appendChild(msg);
-                    return;
-                }
+                if(allResults.length === 0) { sidebarContent.innerHTML += "<div class='sidebar-item'>No results found.</div>"; return; }
                 allResults.forEach(result => {
-                    let item = document.createElement("div");
-                    item.className = "sidebar-item result";
+                    let item = document.createElement("div"); item.className = "sidebar-item result";
                     const excerpt = result.excerpt.replace(query, `<b>${query}</b>`);
                     item.innerHTML = `...${excerpt}...`;
-                    item.onclick = () => {
-                        rendition.display(result.cfi);
-                        toggleSidebar();
-                        document.querySelector('.sidebar-tabs').style.display = 'flex';
-                        document.getElementById('sidebar-title').innerText = "Library";
-                        switchTab(currentTab);
-                    };
+                    item.onclick = () => { rendition.display(result.cfi); toggleSidebar(); };
                     sidebarContent.appendChild(item);
                 });
             });
@@ -586,29 +669,11 @@
 
     function showNotification(msg) {
         const note = document.getElementById('notification');
-        note.innerText = msg;
-        note.style.opacity = '1';
+        note.innerText = msg; note.style.opacity = '1';
         setTimeout(() => { note.style.opacity = '0'; }, 2000);
     }
 
-    /* --- ANIMATION LOGIC (UNCHANGED) --- */
-    function setupGestures() {
-        rendition.on("touchstart", e => {
-            startX = e.changedTouches[0].screenX; isDragging = true; width = window.innerWidth;
-            peel.style.transition = 'none'; dropShadow.style.transition = 'none';
-        });
-        rendition.on("touchmove", e => {
-            if (!isDragging) return;
-            const diff = startX - e.changedTouches[0].screenX;
-            if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
-        });
-        rendition.on("touchend", e => {
-            if (!isDragging) return; isDragging = false;
-            const diff = startX - e.changedTouches[0].screenX;
-            if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
-        });
-    }
-
+    /* --- ANIMATION PHYSICS --- */
     function updatePeelNext(diff) {
         const progress = Math.min(Math.max(diff / width, 0), 1);
         peel.style.display = "block"; dropShadow.style.display = "block";
@@ -620,18 +685,11 @@
         dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.5) ${clipX}%)`;
         dropShadow.style.opacity = progress;
     }
-
     function finishNext() {
         peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
         peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
-        rendition.next().then(() => {
-            setTimeout(() => {
-                peel.style.display = "none"; dropShadow.style.display = "none";
-                peel.style.clipPath = "none"; peel.style.transform = "none";
-            }, 300);
-        });
+        rendition.next().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.clipPath = "none"; peel.style.transform = "none"; }, 300); });
     }
-
     function updatePeelPrev(diff) {
         const progress = Math.min(Math.max(diff / width, 0), 1);
         peel.style.display = "block"; dropShadow.style.display = "block";
@@ -643,35 +701,17 @@
         dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) ${clipX}%)`;
         dropShadow.style.opacity = progress;
     }
-
     function finishPrev() {
-        peel.style.transition = "all 0.3s ease-out";
-        peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`;
-        dropShadow.style.opacity = 0;
+        peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
         rendition.prev().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; }, 100); });
     }
-
-    function resetFlip() {
-        peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; 
-        peel.style.display = "none"; dropShadow.style.display = "none";
-    }
-
-    function triggerNext() {
-        width = window.innerWidth; let start = 0;
-        const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); };
-        animate();
-    }
-
-    function triggerPrev() {
-        width = window.innerWidth; let start = 0;
-        const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); };
-        animate();
-    }
+    function resetFlip() { peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; }
+    function triggerNext() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); }; animate(); }
+    function triggerPrev() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); }; animate(); }
 
     const params = new URLSearchParams(window.location.search);
     const url = params.get("url") || DEFAULT_BOOK;
     initReader(decodeURIComponent(url));
-
 </script>
 </body>
 </html>
