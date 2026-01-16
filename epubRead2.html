@@ -16,7 +16,7 @@
             --text-color: #eee;
             --paper-color: #fdfaf5;
             --paper-text: #000;
-            --accent-color: #f1c40f; 
+            --accent-color: #c0392b;
             --sidebar-bg: #2a2a2a;
         }
 
@@ -58,9 +58,9 @@
             transition: background 0.2s, transform 0.1s;
         }
         #toolbar button:active { transform: scale(0.95); background: #666; }
+        #toolbar button.active { background: var(--accent-color); color: white; }
         
-        #toolbar button.active { background: var(--accent-color); color: #000; }
-        #btn-highlight.active { background: var(--accent-color); color: #000; box-shadow: 0 0 8px rgba(241, 196, 15, 0.6); }
+        #btn-highlight.active { background: #f1c40f; color: #333; box-shadow: 0 0 8px rgba(241, 196, 15, 0.6); }
 
         .search-container { position: relative; display: flex; align-items: center; }
         
@@ -98,11 +98,11 @@
         }
 
         #highlight-menu button {
-            background: var(--accent-color); color: #000; border: none;
+            background: #f1c40f; color: #000; border: none;
             padding: 6px 12px; border-radius: 3px; font-weight: bold;
             cursor: pointer; font-size: 13px;
         }
-        #highlight-menu button:hover { opacity: 0.9; }
+        #highlight-menu button:hover { background: #d4ac0d; }
 
         /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
@@ -221,7 +221,6 @@
     
     // Selection State
     let currentSelection = { cfiRange: null, contents: null };
-    let selectionTimeout = null;
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -273,61 +272,32 @@
             });
 
             rendition.hooks.content.register(function(contents) {
-                // 1. Inject Styles
-                const style = contents.document.createElement("style");
+                // Add basic highlight class styles
+                let style = contents.document.createElement('style');
                 style.innerHTML = `
-                    .epubjs-hl { background: rgba(255,255,0,0.5) !important; }
-                    /* Force selection visibility */
-                    ::selection { background: rgba(241, 196, 15, 0.4) !important; }
+                    .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
                 `;
                 contents.document.head.appendChild(style);
                 
-                // 2. Apply Selection Mode
+                // Update selection mode
                 updateContentSelectionMode(contents);
-
-                // 3. LISTEN FOR SELECTION CHANGES (Touch/Mouse)
-                // This replaces standard rendition 'selected' event for better control
-                const doc = contents.document;
-                
-                const handleSelection = () => {
-                    if (!isHighlightMode) return;
-                    
-                    // Use a small timeout to let the native selection settle (important for handles)
-                    if (selectionTimeout) clearTimeout(selectionTimeout);
-                    
-                    selectionTimeout = setTimeout(() => {
-                        const sel = doc.getSelection();
-                        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-                            return;
-                        }
-
-                        const range = sel.getRangeAt(0);
-                        if (!range || range.collapsed) return;
-
-                        // Try to convert to CFI
-                        try {
-                            const cfiRange = contents.cfiFromRange(range);
-                            if (cfiRange) {
-                                showHighlightMenu(cfiRange, contents);
-                            }
-                        } catch (e) {
-                            console.log("Selection error", e);
-                        }
-                    }, 150); // 150ms debounce
-                };
-
-                // Listen to multiple events to catch all selection ends
-                doc.addEventListener("touchend", handleSelection);
-                doc.addEventListener("mouseup", handleSelection);
-                
-                // Optional: Listen to selectionchange if supported well in context
-                // doc.addEventListener("selectionchange", handleSelection);
             });
 
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 hideHighlightMenu();
+            });
+
+            rendition.on('selected', (cfiRange, contents) => {
+                if (isHighlightMode) {
+                    addHighlight(cfiRange);
+                    if(contents) {
+                        setTimeout(() => {
+                            contents.window.getSelection().removeAllRanges();
+                        }, 100);
+                    }
+                }
             });
             
             rendition.on('click', () => hideHighlightMenu());
@@ -343,11 +313,11 @@
         
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight ON: Select Text");
+            showNotification("Highlight ON: Drag to select text");
             document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
-            showNotification("Highlight OFF");
+            showNotification("Highlight OFF: Swipe to turn pages");
             hideHighlightMenu();
             document.body.style.userSelect = "none";
         }
@@ -369,12 +339,15 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
-                // STRICT CSS: Forces text selection availability
+                // STRICT CSS: Force generic elements to be selectable to allow multi-word drag
                 styleTag.innerHTML = `
                     * {
                         user-select: text !important;
                         -webkit-user-select: text !important;
                         cursor: text !important;
+                    }
+                    ::selection {
+                        background: rgba(255, 255, 0, 0.3) !important;
                     }
                 `;
                 doc.head.appendChild(styleTag);
@@ -392,11 +365,9 @@
     function showHighlightMenu(cfiRange, contents) {
         currentSelection.cfiRange = cfiRange;
         currentSelection.contents = contents;
-        
         const range = contents.range(cfiRange);
         const rect = range.getBoundingClientRect();
         const viewerRect = viewer.getBoundingClientRect();
-        
         highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
         highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
         highlightMenu.style.display = "block";
@@ -409,11 +380,8 @@
     function confirmHighlight() {
         if (!currentSelection.cfiRange) return;
         addHighlight(currentSelection.cfiRange);
-        
-        // Clear native selection after highlighting
         if(currentSelection.contents) {
-            const sel = currentSelection.contents.window.getSelection();
-            if(sel) sel.removeAllRanges();
+            currentSelection.contents.window.getSelection().removeAllRanges();
         }
         hideHighlightMenu();
     }
@@ -469,29 +437,35 @@
             peel.style.background = "#fdfaf5";
         }
         setTimeout(() => { 
+            // Reuse changeFontSize logic to ensure highlights align
             changeFontSize(0); 
         }, 10);
     }
 
-    /* --- ZOOM FIX --- */
+    // --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS ---
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         showNotification(`Zoom: ${currentFontSize}%`);
 
+        // 1. Get current location
         const loc = rendition.currentLocation();
         const currentCfi = loc && loc.start ? loc.start.cfi : null;
 
+        // 2. Remove ALL highlights visually (cleanup old coordinates)
         let storedHighlights = getStoredHighlights();
         storedHighlights.forEach(h => {
              rendition.annotations.remove(h, 'highlight');
         });
 
+        // 3. Apply Size
         rendition.themes.fontSize(currentFontSize + "%");
 
+        // 4. Force redraw at current location, then re-add highlights
         if (currentCfi) {
              rendition.display(currentCfi).then(() => {
+                 // Wait a moment for layout to settle completely
                  setTimeout(() => {
-                     loadHighlights(); 
+                     loadHighlights(); // Re-add highlights to new coordinates
                  }, 150); 
              });
         }
