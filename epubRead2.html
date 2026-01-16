@@ -339,6 +339,7 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
+                // STRICT CSS: Force generic elements to be selectable to allow multi-word drag
                 styleTag.innerHTML = `
                     * {
                         user-select: text !important;
@@ -435,33 +436,38 @@
             rendition.themes.select("light");
             peel.style.background = "#fdfaf5";
         }
-        // Force refresh to adjust highlights after theme change
         setTimeout(() => { 
-            const loc = rendition.currentLocation();
-            const cfi = loc && loc.start ? loc.start.cfi : null;
-            rendition.themes.fontSize(currentFontSize + "%"); 
-            if(cfi) rendition.display(cfi);
+            // Reuse changeFontSize logic to ensure highlights align
+            changeFontSize(0); 
         }, 10);
     }
 
-    // --- FIX FOR ZOOM HIGHLIGHTS ---
+    // --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS ---
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
-        
-        // 1. Get current location before resizing
+        showNotification(`Zoom: ${currentFontSize}%`);
+
+        // 1. Get current location
         const loc = rendition.currentLocation();
         const currentCfi = loc && loc.start ? loc.start.cfi : null;
 
-        // 2. Apply the new font size
-        rendition.themes.fontSize(currentFontSize + "%");
-        showNotification(`Zoom: ${currentFontSize}%`);
+        // 2. Remove ALL highlights visually (cleanup old coordinates)
+        let storedHighlights = getStoredHighlights();
+        storedHighlights.forEach(h => {
+             rendition.annotations.remove(h, 'highlight');
+        });
 
-        // 3. Force re-render of current location. 
-        // This makes epub.js recalculate the position of the highlights.
+        // 3. Apply Size
+        rendition.themes.fontSize(currentFontSize + "%");
+
+        // 4. Force redraw at current location, then re-add highlights
         if (currentCfi) {
-             setTimeout(() => {
-                 rendition.display(currentCfi);
-             }, 50); 
+             rendition.display(currentCfi).then(() => {
+                 // Wait a moment for layout to settle completely
+                 setTimeout(() => {
+                     loadHighlights(); // Re-add highlights to new coordinates
+                 }, 150); 
+             });
         }
     }
 
