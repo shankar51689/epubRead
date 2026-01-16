@@ -78,7 +78,7 @@
         
         .helper-text { color:#666; font-size:12px; margin:0 10px; white-space: nowrap; }
 
-        /* ===== HIGHLIGHT MENU (Hidden for Instant Mode, kept for structure) ===== */
+        /* ===== HIGHLIGHT MENU ===== */
         #highlight-menu {
             position: absolute;
             z-index: 3000;
@@ -236,9 +236,16 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
+    // --- FIX 1: Updated Themes to include selection colors ---
     const THEMES = {
-        light: { body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" } },
-        dark: { body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" } }
+        light: { 
+            body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" },
+            "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
+        },
+        dark: { 
+            body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" },
+            "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
+        }
     };
 
     function initReader(url) {
@@ -261,24 +268,34 @@
                 generateTOC();
             });
 
+            // --- FIX 2: Inject CSS for Highlights so they are visible ---
+            rendition.hooks.content.register(function(contents) {
+                let style = contents.document.createElement('style');
+                style.innerHTML = `
+                    .epubjs-hl { fill: yellow; fill-opacity: 0.3; mix-blend-mode: multiply; } 
+                    .epub-highlight { background-color: rgba(255, 255, 0, 0.3); }
+                `;
+                contents.document.head.appendChild(style);
+            });
+
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 hideHighlightMenu();
             });
 
-            // --- SELECTION HANDLER (MODIFIED FOR MULTI-HIGHLIGHTING) ---
+            // --- FIX 3: Selection Handler for Continuous Highlighting ---
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
-                    // INSTANT HIGHLIGHT (No Menu)
                     addHighlight(cfiRange);
-                    // Clear selection immediately so user can select the next word
+                    // Clear selection with a tiny delay to allow the highlight to render
                     if(contents) {
-                        contents.window.getSelection().removeAllRanges();
+                        setTimeout(() => {
+                            contents.window.getSelection().removeAllRanges();
+                        }, 50);
                     }
                 } else {
-                    // Optional: You could show the menu here if highlighting is OFF,
-                    // but for this behavior we keep it clean.
+                    // Normal behavior when not highlighting (e.g. show menu)
                 }
             });
             
@@ -294,11 +311,15 @@
         const btn = document.getElementById('btn-highlight');
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight Mode: ON (Drag text to highlight instantly)");
+            showNotification("Highlight Mode: ON (Select text to paint)");
+            // FIX: Allow selection when mode is ON
+            document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
-            showNotification("Highlight Mode: OFF");
+            showNotification("Highlight Mode: OFF (Swipe to turn)");
             hideHighlightMenu();
+            // FIX: Disable selection when mode is OFF (to prioritize swiping)
+            document.body.style.userSelect = "none";
         }
     }
 
@@ -362,7 +383,7 @@
         try { return JSON.parse(localStorage.getItem('highlights') || "[]"); } catch (e) { return []; }
     }
 
-    /* --- THEMES (FIXED) --- */
+    /* --- THEMES --- */
     function registerThemes() {
         rendition.themes.register("light", THEMES.light);
         rendition.themes.register("dark", THEMES.dark);
@@ -388,20 +409,27 @@
         showNotification(`Zoom: ${currentFontSize}%`);
     }
 
-    /* --- GESTURE LOGIC (FIXED) --- */
+    /* --- GESTURE LOGIC (FIXED TO PREVENT CONFLICTS) --- */
     function setupGestures() {
         rendition.on("touchstart", e => {
-            if (isHighlightMode) return; // Disable Swipe during selection mode
+            // FIX: If highlighting, STOP custom gesture handling immediately
+            if (isHighlightMode) return; 
+            
             startX = e.changedTouches[0].screenX; isDragging = true; width = window.innerWidth;
             peel.style.transition = 'none'; dropShadow.style.transition = 'none';
         });
         rendition.on("touchmove", e => {
+            // FIX: If highlighting, STOP custom gesture handling
+            if (isHighlightMode) return;
+            
             if (!isDragging) return;
             if (e.preventDefault) e.preventDefault();
             const diff = startX - e.changedTouches[0].screenX;
             if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
         });
         rendition.on("touchend", e => {
+            if (isHighlightMode) return;
+            
             if (!isDragging) return; isDragging = false;
             const diff = startX - e.changedTouches[0].screenX;
             if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
@@ -414,11 +442,13 @@
             peel.style.transition = 'none'; dropShadow.style.transition = 'none';
         });
         rendition.on("mousemove", e => {
+            if (isHighlightMode) return; 
             if (!isDragging) return; e.preventDefault();
             const diff = startX - e.screenX;
             if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
         });
         rendition.on("mouseup", e => {
+            if (isHighlightMode) return; 
             if (!isDragging) return; isDragging = false;
             const diff = startX - e.screenX;
             if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
@@ -481,12 +511,10 @@
                         }
                     } catch(err) {}
                 }
-                // Try Page Number First
                 try {
                     const pageNum = book.locations.locationFromCfi(cfi);
                     if (pageNum > 0) pageStr = `Page ${pageNum}`;
                 } catch(e) {}
-                // Fallback to %
                 if (!pageStr && loc.start.percentage) pageStr = Math.round(loc.start.percentage * 100) + "%";
 
                 if (chapterName && pageStr) label = `${chapterName} (${pageStr})`;
