@@ -104,7 +104,7 @@
         }
         #highlight-menu button:hover { background: #d4ac0d; }
 
-        /* ===== SIDEBAR & LAYOUT (UNCHANGED) ===== */
+        /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
             #toolbar { flex-wrap: wrap; height: auto; padding: 10px; gap: 10px; justify-content: center; }
             .group-meta { width: 100%; justify-content: space-between; order: 1; border-bottom: 1px solid #333; padding-bottom: 8px; }
@@ -236,19 +236,16 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
-    // 1. UPDATED THEMES: Enforce text selection capability within the theme
     const THEMES = {
         light: { 
             body: { 
                 "color": "#000", "background": "#fdfaf5", "font-family": "Georgia",
-                "-webkit-user-select": "auto", "user-select": "auto" 
             },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
         },
         dark: { 
             body: { 
                 "color": "#dcdcdc", "background": "#333333", "font-family": "Georgia",
-                "-webkit-user-select": "auto", "user-select": "auto"
             },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
         }
@@ -274,16 +271,15 @@
                 generateTOC();
             });
 
-            // 2. INJECT ROBUST CSS: Uses !important to force visibility
             rendition.hooks.content.register(function(contents) {
+                // Add basic highlight class styles
                 let style = contents.document.createElement('style');
                 style.innerHTML = `
                     .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
-                    ::selection { background: rgba(255, 255, 0, 0.3); }
                 `;
                 contents.document.head.appendChild(style);
                 
-                // IMPORTANT: Apply current mode state to new chapters
+                // IMPORTANT: Apply current highlight mode state to new chapters with robust CSS
                 updateContentSelectionMode(contents);
             });
 
@@ -293,12 +289,11 @@
                 hideHighlightMenu();
             });
 
-            // 3. SELECTION HANDLER: Captures full ranges
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
                     addHighlight(cfiRange);
-                    // We clear the selection so you can start a new one,
-                    // but we do it after a slight delay to ensure the user sees the 'snap'
+                    // Clear selection after a delay to allow visual feedback, 
+                    // but allow the browser enough time to register the end of the event.
                     if(contents) {
                         setTimeout(() => {
                             contents.window.getSelection().removeAllRanges();
@@ -329,26 +324,49 @@
             document.body.style.userSelect = "none";
         }
 
-        // CRITICAL FIX: Apply setting to the actual book contents (Iframe)
-        // This enables drag-to-select for multiple words
+        // Apply setting to the actual book contents
         const contents = rendition.getContents();
         if (contents) {
             contents.forEach(content => updateContentSelectionMode(content));
         }
     }
 
-    // Helper to force internal book styles
+    // FIXED: Helper to force internal book styles via CSS injection
+    // This solves the issue of only being able to select one word by forcing 
+    // user-select on ALL elements using !important
     function updateContentSelectionMode(content) {
-        if (!content || !content.document || !content.document.body) return;
+        if (!content || !content.document || !content.document.head) return;
         
+        const doc = content.document;
+        const styleId = 'highlight-mode-override';
+        let styleTag = doc.getElementById(styleId);
+
         if (isHighlightMode) {
-            content.document.body.style.userSelect = "auto";
-            content.document.body.style.webkitUserSelect = "auto";
-            content.document.body.style.cursor = "text";
+            if (!styleTag) {
+                styleTag = doc.createElement('style');
+                styleTag.id = styleId;
+                // Force user-select on everything to allow dragging across paragraphs/spans
+                styleTag.innerHTML = `
+                    * {
+                        user-select: text !important;
+                        -webkit-user-select: text !important;
+                        cursor: text !important;
+                    }
+                    ::selection {
+                        background: rgba(255, 255, 0, 0.3) !important;
+                    }
+                `;
+                doc.head.appendChild(styleTag);
+            }
         } else {
-            content.document.body.style.userSelect = "none";
-            content.document.body.style.webkitUserSelect = "none";
-            content.document.body.style.cursor = "default";
+            if (styleTag) {
+                styleTag.remove();
+            }
+            // Reset cursor
+            doc.body.style.cursor = "default";
+            // Ensure default state is unselectable for the generic container
+            doc.body.style.userSelect = "none";
+            doc.body.style.webkitUserSelect = "none";
         }
     }
 
@@ -436,7 +454,7 @@
         showNotification(`Zoom: ${currentFontSize}%`);
     }
 
-    /* --- GESTURE LOGIC (STRICT) --- */
+    /* --- GESTURE LOGIC --- */
     function setupGestures() {
         rendition.on("touchstart", e => {
             // STRICT MODE: If highlighting, do ABSOLUTELY NOTHING related to page turning.
@@ -644,7 +662,7 @@
         setTimeout(() => { note.style.opacity = '0'; }, 2000);
     }
 
-    /* --- ANIMATION PHYSICS (UNCHANGED) --- */
+    /* --- ANIMATION PHYSICS --- */
     function updatePeelNext(diff) {
         const progress = Math.min(Math.max(diff / width, 0), 1);
         peel.style.display = "block"; dropShadow.style.display = "block";
