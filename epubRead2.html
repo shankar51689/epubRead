@@ -78,7 +78,7 @@
         
         .helper-text { color:#666; font-size:12px; margin:0 10px; white-space: nowrap; }
 
-        /* ===== HIGHLIGHT MENU (The Popup) ===== */
+        /* ===== HIGHLIGHT MENU (Hidden for Instant Mode, kept for structure) ===== */
         #highlight-menu {
             position: absolute;
             z-index: 3000;
@@ -264,19 +264,24 @@
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
-                // Hide menu on page turn
                 hideHighlightMenu();
             });
 
-            // --- SELECTION HANDLER (MODIFIED) ---
+            // --- SELECTION HANDLER (MODIFIED FOR MULTI-HIGHLIGHTING) ---
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
-                    // Don't highlight immediately. Show menu instead.
-                    showHighlightMenu(cfiRange, contents);
+                    // INSTANT HIGHLIGHT (No Menu)
+                    addHighlight(cfiRange);
+                    // Clear selection immediately so user can select the next word
+                    if(contents) {
+                        contents.window.getSelection().removeAllRanges();
+                    }
+                } else {
+                    // Optional: You could show the menu here if highlighting is OFF,
+                    // but for this behavior we keep it clean.
                 }
             });
             
-            // Hide menu if clicked elsewhere
             rendition.on('click', () => hideHighlightMenu());
         });
 
@@ -289,10 +294,10 @@
         const btn = document.getElementById('btn-highlight');
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight Mode: ON (Drag text to select)");
+            showNotification("Highlight Mode: ON (Drag text to highlight instantly)");
         } else {
             btn.classList.remove('active');
-            showNotification("Highlight Mode: OFF (Swipe to turn)");
+            showNotification("Highlight Mode: OFF");
             hideHighlightMenu();
         }
     }
@@ -301,12 +306,10 @@
         currentSelection.cfiRange = cfiRange;
         currentSelection.contents = contents;
 
-        // Calculate Position
         const range = contents.range(cfiRange);
         const rect = range.getBoundingClientRect();
         const viewerRect = viewer.getBoundingClientRect();
 
-        // Position menu above selection (accounting for iframe position)
         highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
         highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
         highlightMenu.style.display = "block";
@@ -314,16 +317,11 @@
 
     function hideHighlightMenu() {
         highlightMenu.style.display = "none";
-        // Optionally clear selection if menu is dismissed without action
-        // if(currentSelection.contents) currentSelection.contents.window.getSelection().removeAllRanges();
     }
 
     function confirmHighlight() {
         if (!currentSelection.cfiRange) return;
-        
         addHighlight(currentSelection.cfiRange);
-        
-        // Clear selection visually
         if(currentSelection.contents) {
             currentSelection.contents.window.getSelection().removeAllRanges();
         }
