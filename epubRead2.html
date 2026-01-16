@@ -236,14 +236,20 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
-    // --- FIX 1: Updated Themes to include selection colors ---
+    // 1. UPDATED THEMES: Enforce text selection capability within the theme
     const THEMES = {
         light: { 
-            body: { color: "#000", background: "#fdfaf5", "font-family": "Georgia" },
+            body: { 
+                "color": "#000", "background": "#fdfaf5", "font-family": "Georgia",
+                "-webkit-user-select": "auto", "user-select": "auto" 
+            },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
         },
         dark: { 
-            body: { color: "#dcdcdc", background: "#333333", "font-family": "Georgia" },
+            body: { 
+                "color": "#dcdcdc", "background": "#333333", "font-family": "Georgia",
+                "-webkit-user-select": "auto", "user-select": "auto"
+            },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
         }
     };
@@ -268,14 +274,17 @@
                 generateTOC();
             });
 
-            // --- FIX 2: Inject CSS for Highlights so they are visible ---
+            // 2. INJECT ROBUST CSS: Uses !important to force visibility
             rendition.hooks.content.register(function(contents) {
                 let style = contents.document.createElement('style');
                 style.innerHTML = `
-                    .epubjs-hl { fill: yellow; fill-opacity: 0.3; mix-blend-mode: multiply; } 
-                    .epub-highlight { background-color: rgba(255, 255, 0, 0.3); }
+                    .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
+                    ::selection { background: rgba(255, 255, 0, 0.3); }
                 `;
                 contents.document.head.appendChild(style);
+                
+                // IMPORTANT: Apply current mode state to new chapters
+                updateContentSelectionMode(contents);
             });
 
             rendition.on('relocated', (location) => {
@@ -284,18 +293,17 @@
                 hideHighlightMenu();
             });
 
-            // --- FIX 3: Selection Handler for Continuous Highlighting ---
+            // 3. SELECTION HANDLER: Captures full ranges
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
                     addHighlight(cfiRange);
-                    // Clear selection with a tiny delay to allow the highlight to render
+                    // We clear the selection so you can start a new one,
+                    // but we do it after a slight delay to ensure the user sees the 'snap'
                     if(contents) {
                         setTimeout(() => {
                             contents.window.getSelection().removeAllRanges();
-                        }, 50);
+                        }, 100);
                     }
-                } else {
-                    // Normal behavior when not highlighting (e.g. show menu)
                 }
             });
             
@@ -309,28 +317,47 @@
     function toggleHighlightMode() {
         isHighlightMode = !isHighlightMode;
         const btn = document.getElementById('btn-highlight');
+        
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight Mode: ON (Select text to paint)");
-            // FIX: Allow selection when mode is ON
+            showNotification("Highlight ON: Drag to select text");
             document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
-            showNotification("Highlight Mode: OFF (Swipe to turn)");
+            showNotification("Highlight OFF: Swipe to turn pages");
             hideHighlightMenu();
-            // FIX: Disable selection when mode is OFF (to prioritize swiping)
             document.body.style.userSelect = "none";
+        }
+
+        // CRITICAL FIX: Apply setting to the actual book contents (Iframe)
+        // This enables drag-to-select for multiple words
+        const contents = rendition.getContents();
+        if (contents) {
+            contents.forEach(content => updateContentSelectionMode(content));
+        }
+    }
+
+    // Helper to force internal book styles
+    function updateContentSelectionMode(content) {
+        if (!content || !content.document || !content.document.body) return;
+        
+        if (isHighlightMode) {
+            content.document.body.style.userSelect = "auto";
+            content.document.body.style.webkitUserSelect = "auto";
+            content.document.body.style.cursor = "text";
+        } else {
+            content.document.body.style.userSelect = "none";
+            content.document.body.style.webkitUserSelect = "none";
+            content.document.body.style.cursor = "default";
         }
     }
 
     function showHighlightMenu(cfiRange, contents) {
         currentSelection.cfiRange = cfiRange;
         currentSelection.contents = contents;
-
         const range = contents.range(cfiRange);
         const rect = range.getBoundingClientRect();
         const viewerRect = viewer.getBoundingClientRect();
-
         highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
         highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
         highlightMenu.style.display = "block";
@@ -409,17 +436,18 @@
         showNotification(`Zoom: ${currentFontSize}%`);
     }
 
-    /* --- GESTURE LOGIC (FIXED TO PREVENT CONFLICTS) --- */
+    /* --- GESTURE LOGIC (STRICT) --- */
     function setupGestures() {
         rendition.on("touchstart", e => {
-            // FIX: If highlighting, STOP custom gesture handling immediately
+            // STRICT MODE: If highlighting, do ABSOLUTELY NOTHING related to page turning.
+            // This allows the browser to handle the touch for text selection naturally.
             if (isHighlightMode) return; 
             
             startX = e.changedTouches[0].screenX; isDragging = true; width = window.innerWidth;
             peel.style.transition = 'none'; dropShadow.style.transition = 'none';
         });
+        
         rendition.on("touchmove", e => {
-            // FIX: If highlighting, STOP custom gesture handling
             if (isHighlightMode) return;
             
             if (!isDragging) return;
@@ -427,6 +455,7 @@
             const diff = startX - e.changedTouches[0].screenX;
             if (diff > 0) updatePeelNext(diff); else updatePeelPrev(Math.abs(diff));
         });
+        
         rendition.on("touchend", e => {
             if (isHighlightMode) return;
             
@@ -435,7 +464,7 @@
             if (diff > 100) finishNext(); else if (diff < -100) finishPrev(); else resetFlip();
         });
         
-        // Mouse Listeners (Desktop)
+        // Mouse Listeners
         rendition.on("mousedown", e => {
             if (isHighlightMode) return; 
             startX = e.screenX; isDragging = true; width = window.innerWidth;
@@ -455,7 +484,7 @@
         });
     }
 
-    /* --- SIDEBAR & UI --- */
+    /* --- SIDEBAR & UI (UNCHANGED) --- */
     function toggleSidebar() {
         sidebar.classList.toggle('open');
         sidebarOverlay.classList.toggle('active');
@@ -654,7 +683,6 @@
     const params = new URLSearchParams(window.location.search);
     const url = params.get("url") || DEFAULT_BOOK;
     initReader(decodeURIComponent(url));
-
 </script>
 </body>
 </html>
