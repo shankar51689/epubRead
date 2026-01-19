@@ -149,6 +149,46 @@
         .hl-delete { background: #f44336; display: none; }
         .hl-delete:hover { background: #d32f2f; }
 
+        /* ===== TTS MENU (Popup) ===== */
+        #tts-menu {
+            position: absolute;
+            z-index: 3100;
+            background: #222;
+            padding: 10px 12px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+            display: none;
+            transform: translate(-50%, -100%);
+            margin-top: -20px;
+            border: 1px solid #555;
+            pointer-events: auto;
+            min-width: 160px;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        #tts-menu::after {
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+            border-width: 6px; border-style: solid;
+            border-color: #222 transparent transparent transparent;
+        }
+
+        .tts-actions { display: flex; gap: 10px; justify-content: center; }
+        .tts-btn {
+            width: 40px; height: 34px; border: none; border-radius: 6px;
+            cursor: pointer; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.12);
+            transition: background 0.2s, transform 0.1s;
+        }
+        .tts-btn:active { transform: scale(0.96); background: rgba(255,255,255,0.2); }
+        .tts-play { background: #2ecc71; }
+        .tts-play:hover { filter: brightness(0.95); }
+        .tts-pause { background: #f1c40f; color: #333; }
+        .tts-pause:hover { filter: brightness(0.95); }
+        .tts-stop { background: #e74c3c; }
+        .tts-stop:hover { filter: brightness(0.95); }
+
         /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
             #toolbar { flex-wrap: wrap; height: auto; padding: 10px; gap: 10px; justify-content: center; }
@@ -207,6 +247,7 @@
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
             <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
+            <button onclick="toggleTTS()" id="btn-tts" title="Text to Speech"><i class="fas fa-volume-up"></i></button>
         </div>
         
         <div class="search-container" id="search-container">
@@ -256,6 +297,15 @@
     </div>
 </div>
 
+<div id="tts-menu">
+    <div style="font-family:sans-serif; font-size:12px; color:#ddd; opacity:0.9;">Text to Speech</div>
+    <div class="tts-actions">
+        <button class="tts-btn tts-play" onclick="ttsSpeakSelected()"><i class="fas fa-play"></i></button>
+        <button class="tts-btn tts-pause" onclick="ttsTogglePause()"><i class="fas fa-pause"></i></button>
+        <button class="tts-btn tts-stop" onclick="ttsStop()"><i class="fas fa-stop"></i></button>
+    </div>
+</div>
+
 <div id="loading">Loading Book...</div>
 <div id="notification">Notification</div>
 
@@ -285,6 +335,15 @@
     let lastSearchQuery = '';
     let navigationData = []; 
     let isHighlightMode = false;
+    let isTtsMode = false;
+
+    // Text to Speech State
+    let ttsState = {
+        selectedText: '',
+        utterance: null,
+        isSpeaking: false,
+        isPaused: false
+    };
     
     // Highlight Selection State
     let currentSelection = { cfiRange: null, text: "", isEditing: false, existingCfi: null };
@@ -303,6 +362,7 @@
     const highlightMenu = document.getElementById('highlight-menu');
     const noteInput = document.getElementById('hl-note-input');
     const btnRemoveHl = document.getElementById('btn-remove-hl');
+    const ttsMenu = document.getElementById('tts-menu');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
@@ -356,23 +416,35 @@
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 hideHighlightMenu();
-            });
-
-            // 2. CREATE: Text Selected -> Open Menu
+                hideTtsMenu();
+            });            // 2. Text Selected -> Open Highlight menu (if highlight mode) or TTS menu (otherwise)
             rendition.on('selected', (cfiRange, contents) => {
-                if (isHighlightMode) {
-                    // Lock Selection CFI immediately
-                    currentSelection.cfiRange = cfiRange;
-                    currentSelection.isEditing = false;
-                    currentSelection.existingCfi = null;
-                    
-                    try {
-                        const range = contents.range(cfiRange);
-                        if(range) currentSelection.text = range.toString().substring(0, 100);
-                    } catch(e) { currentSelection.text = "Highlight"; }
+                // Cache selection
+                currentSelection.cfiRange = cfiRange;
+                currentSelection.isEditing = false;
+                currentSelection.existingCfi = null;
 
-                    // Show Menu
+                let fullText = '';
+                try {
+                    const range = contents.range(cfiRange);
+                    if (range) fullText = range.toString();
+                } catch (_) {
+                    // ignore
+                }
+                ttsState.selectedText = (fullText || '').trim();
+                currentSelection.text = (ttsState.selectedText || 'Highlight').substring(0, 100);
+
+                if (isHighlightMode) {
+                    // Show Highlight Menu
                     showHighlightMenu(cfiRange, contents);
+                } else if (isTtsMode) {
+                    // Show TTS Menu
+                    showTtsMenu(cfiRange, contents);
+                    // Auto-speak the selected text
+                    ttsSpeakSelected();
+                } else {
+                    // Neither mode: ignore selection
+                    try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
                 }
             });
 
@@ -380,6 +452,7 @@
             // (Editing highlights is handled via the annotation click callback in applyHighlightVisual.)
             rendition.on('click', () => {
                 hideHighlightMenu();
+                hideTtsMenu();
             });
 
 
@@ -387,6 +460,127 @@
     });
 }
 
+
+    /* --- TEXT TO SPEECH (TTS) --- */
+    function isTtsSupported() {
+        return typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+    }
+
+    function toggleTTS() {
+        isTtsMode = !isTtsMode;
+        const btn = document.getElementById('btn-tts');
+        if (isTtsMode) {
+            btn.classList.add('active');
+            showNotification('TTS ON');
+            document.body.style.userSelect = 'auto';
+        } else {
+            btn.classList.remove('active');
+            showNotification('TTS OFF');
+            hideTtsMenu();
+        }
+
+        // Keep selection enabled if either Highlight or TTS mode is active
+        document.body.style.userSelect = (isHighlightMode || isTtsMode) ? 'auto' : 'none';
+        const contents = rendition && rendition.getContents ? rendition.getContents() : null;
+        if (contents) contents.forEach(c => updateContentSelectionMode(c));
+    }
+
+    function showTtsMenu(cfiRange, contents) {
+        if (!ttsMenu) return;
+        // Position near the selected text
+        try {
+            const range = contents.range(cfiRange);
+            const rect = range.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+
+            const topPos = rect.top + viewerRect.top;
+            const leftPos = rect.left + viewerRect.left + (rect.width / 2);
+
+            ttsMenu.style.top = topPos + 'px';
+            ttsMenu.style.left = leftPos + 'px';
+            ttsMenu.style.display = 'flex';
+        } catch (_) {
+            const viewerRect = viewer.getBoundingClientRect();
+            ttsMenu.style.top = (viewerRect.top + 80) + 'px';
+            ttsMenu.style.left = (viewerRect.left + (viewerRect.width / 2)) + 'px';
+            ttsMenu.style.display = 'flex';
+        }
+    }
+
+    function hideTtsMenu() {
+        if (!ttsMenu) return;
+        ttsMenu.style.display = 'none';
+    }
+
+    function ttsSpeakSelected() {
+        const text = (ttsState.selectedText || '').trim();
+        if (!text) {
+            showNotification('Select text to speak');
+            return;
+        }
+        if (!isTtsSupported()) {
+            showNotification('TTS not supported in this browser');
+            return;
+        }
+
+        // Stop any ongoing speech first
+        ttsStop();
+
+        // Limit to avoid huge utterances
+        const safeText = text.length > 5000 ? text.slice(0, 5000) : text;
+
+        const u = new SpeechSynthesisUtterance(safeText);
+        // Try to pick a reasonable voice matching language
+        try {
+            const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+            const langPref = (navigator.language || 'en-US');
+            const voice = voices.find(v => v.lang === langPref) || voices.find(v => v.lang && v.lang.startsWith(langPref.split('-')[0])) || voices[0];
+            if (voice) u.voice = voice;
+            u.lang = (voice && voice.lang) ? voice.lang : langPref;
+        } catch (_) {
+            u.lang = navigator.language || 'en-US';
+        }
+        u.rate = 1;
+        u.pitch = 1;
+
+        u.onstart = () => { ttsState.isSpeaking = true; ttsState.isPaused = false; showNotification('Speaking'); };
+        u.onend = () => { ttsState.isSpeaking = false; ttsState.isPaused = false; };
+        u.onerror = () => { ttsState.isSpeaking = false; ttsState.isPaused = false; showNotification('TTS error'); };
+
+        ttsState.utterance = u;
+        window.speechSynthesis.speak(u);
+    }
+
+    function ttsTogglePause() {
+        if (!isTtsSupported()) {
+            showNotification('TTS not supported');
+            return;
+        }
+        if (!ttsState.isSpeaking && !window.speechSynthesis.speaking) {
+            // If nothing is speaking, start
+            ttsSpeakSelected();
+            return;
+        }
+        if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+            ttsState.isPaused = false;
+            showNotification('Resumed');
+        } else {
+            window.speechSynthesis.pause();
+            ttsState.isPaused = true;
+            showNotification('Paused');
+        }
+    }
+
+    function ttsStop() {
+        if (!isTtsSupported()) return;
+        try {
+            window.speechSynthesis.cancel();
+        } catch (_) {}
+        ttsState.isSpeaking = false;
+        ttsState.isPaused = false;
+        ttsState.utterance = null;
+    }
     /* --- HIGHLIGHT LOGIC --- */
     function toggleHighlightMode() {
         isHighlightMode = !isHighlightMode;
@@ -394,12 +588,12 @@
         if (isHighlightMode) {
             btn.classList.add('active');
             showNotification("Highlight ON");
-            document.body.style.userSelect = "auto";
+            document.body.style.userSelect = 'auto';
         } else {
             btn.classList.remove('active');
             showNotification("Highlight OFF");
             hideHighlightMenu();
-            document.body.style.userSelect = "none";
+            document.body.style.userSelect = (isHighlightMode || isTtsMode) ? 'auto' : 'none';
         }
         const contents = rendition.getContents();
         if (contents) contents.forEach(content => updateContentSelectionMode(content));
@@ -407,7 +601,7 @@
 
     function updateContentSelectionMode(content) {
         if (!content || !content.document) return;
-        content.document.body.style.userSelect = isHighlightMode ? "auto" : "none";
+        content.document.body.style.userSelect = (isHighlightMode || isTtsMode) ? 'auto' : 'none';
     }
 
     function selectColor(color) {
@@ -418,6 +612,7 @@
     }
 
     function showHighlightMenu(cfiRange, contents) {
+        hideTtsMenu();
         // Reset UI for Creation
         btnRemoveHl.style.display = "none";
         noteInput.value = "";
