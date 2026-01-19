@@ -236,16 +236,21 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
+    // UPDATED: Added !important to enforce themes
     const THEMES = {
         light: { 
             body: { 
-                "color": "#000", "background": "#fdfaf5", "font-family": "Georgia",
+                "color": "#000 !important", 
+                "background": "#fdfaf5 !important", 
+                "font-family": "Georgia",
             },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
         },
         dark: { 
             body: { 
-                "color": "#dcdcdc", "background": "#333333", "font-family": "Georgia",
+                "color": "#dcdcdc !important", 
+                "background": "#333333 !important", 
+                "font-family": "Georgia",
             },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
         }
@@ -259,11 +264,16 @@
         try { savedLocation = localStorage.getItem('book-location'); } catch(e) {}
         const startOptions = savedLocation ? { cfi: savedLocation } : {};
 
+        // Register themes ONLY once at start
+        registerThemes();
+
         rendition.display(startOptions.cfi).then(() => {
             document.getElementById('loading').style.display = 'none';
             setupGestures();
-            registerThemes();
+            
+            // Set initial theme
             rendition.themes.select("light");
+            
             loadHighlights();
 
             book.loaded.navigation.then(function(toc) {
@@ -339,7 +349,6 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
-                // STRICT CSS: Force generic elements to be selectable to allow multi-word drag
                 styleTag.innerHTML = `
                     * {
                         user-select: text !important;
@@ -425,10 +434,12 @@
         rendition.themes.register("dark", THEMES.dark);
     }
 
+    // UPDATED: Fixed Theme Toggle Logic
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         document.body.classList.toggle('dark-mode');
-        registerThemes();
+        
+        // Select theme via epub.js
         if (isDarkMode) {
             rendition.themes.select("dark");
             peel.style.background = "#333333"; 
@@ -436,13 +447,12 @@
             rendition.themes.select("light");
             peel.style.background = "#fdfaf5";
         }
-        setTimeout(() => { 
-            // Reuse changeFontSize logic to ensure highlights align
-            changeFontSize(0); 
-        }, 10);
+
+        // NOTE: I removed the changeFontSize(0) call here. 
+        // That was causing the book to reload/re-render, which made the theme stuck.
+        // epub.js handles color changes dynamically without a full reload.
     }
 
-    // --- COMPLETE FIX FOR ZOOM/HIGHLIGHTS ---
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         showNotification(`Zoom: ${currentFontSize}%`);
@@ -451,7 +461,7 @@
         const loc = rendition.currentLocation();
         const currentCfi = loc && loc.start ? loc.start.cfi : null;
 
-        // 2. Remove ALL highlights visually (cleanup old coordinates)
+        // 2. Remove ALL highlights visually
         let storedHighlights = getStoredHighlights();
         storedHighlights.forEach(h => {
              rendition.annotations.remove(h, 'highlight');
@@ -460,12 +470,11 @@
         // 3. Apply Size
         rendition.themes.fontSize(currentFontSize + "%");
 
-        // 4. Force redraw at current location, then re-add highlights
+        // 4. Force redraw
         if (currentCfi) {
              rendition.display(currentCfi).then(() => {
-                 // Wait a moment for layout to settle completely
                  setTimeout(() => {
-                     loadHighlights(); // Re-add highlights to new coordinates
+                     loadHighlights(); 
                  }, 150); 
              });
         }
