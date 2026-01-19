@@ -33,7 +33,7 @@
         /* SEPIA MODE VARS */
         body.sepia-mode {
             --bg-color: #f4ecd8;
-            --toolbar-bg: #3e3229; /* Dark Brown for toolbar */
+            --toolbar-bg: #3e3229;
             --text-color: #faeacc;
             --paper-color: #f4ecd8;
             --paper-text: #5b4636;
@@ -95,24 +95,27 @@
             position: absolute;
             z-index: 3000;
             background: #222;
-            padding: 5px;
-            border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            padding: 8px;
+            border-radius: 6px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
             display: none;
-            transform: translateX(-50%) translateY(-100%);
+            /* Center nicely */
+            transform: translate(-50%, -100%);
+            margin-top: -10px;
             white-space: nowrap;
+            border: 1px solid #444;
         }
         
         #highlight-menu::after {
-            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -5px;
-            border-width: 5px; border-style: solid;
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+            border-width: 6px; border-style: solid;
             border-color: #222 transparent transparent transparent;
         }
 
         #highlight-menu button {
             background: #f1c40f; color: #000; border: none;
-            padding: 6px 12px; border-radius: 3px; font-weight: bold;
-            cursor: pointer; font-size: 13px;
+            padding: 8px 16px; border-radius: 4px; font-weight: bold;
+            cursor: pointer; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
         #highlight-menu button:hover { background: #d4ac0d; }
 
@@ -204,7 +207,7 @@
 </div>
 
 <div id="highlight-menu">
-    <button onclick="confirmHighlight()">Highlight Selection</button>
+    <button onclick="confirmHighlight()">Highlight</button>
 </div>
 
 <div id="loading">Loading Book...</div>
@@ -227,7 +230,7 @@
     // State
     let currentFontSize = 100;
     
-    // THEME STATE: 'light' | 'dark' | 'sepia'
+    // THEME STATE
     let currentTheme = 'light';
     const THEME_ORDER = ['light', 'dark', 'sepia'];
 
@@ -252,7 +255,6 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
-    // UPDATED: Added Sepia Theme
     const THEMES = {
         light: { 
             body: { 
@@ -322,18 +324,28 @@
                 hideHighlightMenu();
             });
 
+            // UPDATED: Multi-word selection Fix
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
-                    addHighlight(cfiRange);
-                    if(contents) {
-                        setTimeout(() => {
-                            contents.window.getSelection().removeAllRanges();
-                        }, 100);
-                    }
+                    // Do NOT addHighlight immediately. 
+                    // Store the range, show the menu, and let user adjust selection handles.
+                    currentSelection.cfiRange = cfiRange;
+                    currentSelection.contents = contents;
+                    showHighlightMenu(cfiRange, contents);
+                    
+                    // Note: We do NOT clear selection here. 
+                    // This allows the native OS selection handles to remain visible.
                 }
             });
             
-            rendition.on('click', () => hideHighlightMenu());
+            // Hide menu if user clicks elsewhere
+            rendition.on('click', () => {
+                 // only hide if we aren't interacting with selection
+                 setTimeout(() => {
+                    const sel = window.getSelection();
+                    if(sel.rangeCount === 0) hideHighlightMenu();
+                 }, 200);
+            });
         });
 
         book.ready.then(() => { book.locations.generate(1000); });
@@ -346,7 +358,7 @@
         
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight ON: Drag to select text");
+            showNotification("Highlight ON: Select text to highlight");
             document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
@@ -372,11 +384,17 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
+                // Important: Allow extensive selection
                 styleTag.innerHTML = `
-                    * {
+                    body {
                         user-select: text !important;
                         -webkit-user-select: text !important;
                         cursor: text !important;
+                        touch-action: pan-y !important;
+                    }
+                    * {
+                        user-select: text !important;
+                        -webkit-user-select: text !important;
                     }
                     ::selection {
                         background: rgba(255, 255, 0, 0.3) !important;
@@ -395,26 +413,44 @@
     }
 
     function showHighlightMenu(cfiRange, contents) {
-        currentSelection.cfiRange = cfiRange;
-        currentSelection.contents = contents;
-        const range = contents.range(cfiRange);
-        const rect = range.getBoundingClientRect();
-        const viewerRect = viewer.getBoundingClientRect();
-        highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
-        highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
-        highlightMenu.style.display = "block";
+        if(!cfiRange || !contents) return;
+        
+        try {
+            const range = contents.range(cfiRange);
+            if(!range) return;
+            
+            const rect = range.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            
+            // Position above the selection
+            let topPos = rect.top + viewerRect.top;
+            let leftPos = rect.left + viewerRect.left + (rect.width / 2);
+
+            highlightMenu.style.top = topPos + "px";
+            highlightMenu.style.left = leftPos + "px";
+            highlightMenu.style.display = "block";
+        } catch(e) {
+            console.error("Selection error", e);
+        }
     }
 
     function hideHighlightMenu() {
         highlightMenu.style.display = "none";
     }
 
+    // UPDATED: Confirm executes the save
     function confirmHighlight() {
         if (!currentSelection.cfiRange) return;
+        
+        // 1. Add visual highlight
         addHighlight(currentSelection.cfiRange);
+        
+        // 2. Clear native selection now that we are done
         if(currentSelection.contents) {
-            currentSelection.contents.window.getSelection().removeAllRanges();
+            const win = currentSelection.contents.window;
+            if(win.getSelection) win.getSelection().removeAllRanges();
         }
+        
         hideHighlightMenu();
     }
 
@@ -458,7 +494,6 @@
         rendition.themes.register("sepia", THEMES.sepia);
     }
 
-    // UPDATED: Logic to cycle Light -> Dark -> Sepia
     function toggleTheme() {
         // 1. Calculate Next Theme
         const currentIndex = THEME_ORDER.indexOf(currentTheme);
@@ -493,11 +528,9 @@
                         body.style.setProperty("background-color", "#333333", "important");
                         body.style.setProperty("color", "#dcdcdc", "important");
                     } else if (currentTheme === 'sepia') {
-                        // Sepia Override
                         body.style.setProperty("background-color", "#f4ecd8", "important");
                         body.style.setProperty("color", "#5b4636", "important");
                     } else {
-                        // Light Override
                         body.style.setProperty("background-color", "#fdfaf5", "important");
                         body.style.setProperty("color", "#000000", "important");
                     }
