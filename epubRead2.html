@@ -20,6 +20,7 @@
             --sidebar-bg: #2a2a2a;
         }
 
+        /* DARK MODE VARS */
         body.dark-mode {
             --bg-color: #121212;
             --toolbar-bg: #000;
@@ -27,6 +28,17 @@
             --paper-color: #333333;
             --paper-text: #e0e0e0;
             --sidebar-bg: #1f1f1f;
+        }
+
+        /* SEPIA MODE VARS */
+        body.sepia-mode {
+            --bg-color: #f4ecd8;
+            --toolbar-bg: #3e3229; /* Dark Brown for toolbar */
+            --text-color: #faeacc;
+            --paper-color: #f4ecd8;
+            --paper-text: #5b4636;
+            --sidebar-bg: #463a32;
+            --accent-color: #8e44ad;
         }
 
         body {
@@ -42,7 +54,7 @@
             background: var(--toolbar-bg);
             display: flex; align-items: center; justify-content: space-between;
             padding: 10px 15px; z-index: 2000;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
             transition: all 0.3s;
             height: 50px;
@@ -51,13 +63,13 @@
         .toolbar-group { display: flex; gap: 8px; align-items: center; }
 
         #toolbar button {
-            background: #444; color: #eee; border: none;
+            background: rgba(255,255,255,0.1); color: var(--text-color); border: none;
             width: 36px; height: 36px; border-radius: 6px;
             cursor: pointer; font-size: 16px;
             display: flex; align-items: center; justify-content: center;
             transition: background 0.2s, transform 0.1s;
         }
-        #toolbar button:active { transform: scale(0.95); background: #666; }
+        #toolbar button:active { transform: scale(0.95); background: rgba(255,255,255,0.2); }
         #toolbar button.active { background: var(--accent-color); color: white; }
         
         #btn-highlight.active { background: #f1c40f; color: #333; box-shadow: 0 0 8px rgba(241, 196, 15, 0.6); }
@@ -65,8 +77,8 @@
         .search-container { position: relative; display: flex; align-items: center; }
         
         #search-input {
-            background: #333; border: 1px solid #444;
-            color: white; padding: 0 10px; border-radius: 4px;
+            background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-color); padding: 0 10px; border-radius: 4px;
             width: 0; height: 36px; opacity: 0;
             transition: all 0.3s ease;
             pointer-events: none; position: absolute; right: 0;
@@ -76,7 +88,7 @@
             width: 150px; opacity: 1; pointer-events: all; right: 40px; 
         }
         
-        .helper-text { color:#666; font-size:12px; margin:0 10px; white-space: nowrap; }
+        .helper-text { color: var(--text-color); font-size:12px; margin:0 10px; white-space: nowrap; opacity: 0.7; }
 
         /* ===== HIGHLIGHT MENU ===== */
         #highlight-menu {
@@ -119,25 +131,25 @@
             width: 85%; max-width: 320px; background: var(--sidebar-bg);
             z-index: 2500; transform: translateX(-100%);
             transition: transform 0.3s ease; box-shadow: 2px 0 15px rgba(0,0,0,0.5);
-            display: flex; flex-direction: column; border-right: 1px solid #333;
+            display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.1);
         }
         #sidebar.open { transform: translateX(0); }
         
-        .sidebar-header { padding: 15px; background: rgba(0,0,0,0.2); color: #fff; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; font-weight: bold; }
+        .sidebar-header { padding: 15px; background: rgba(0,0,0,0.2); color: var(--text-color); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); font-weight: bold; }
         .sidebar-tabs { display: flex; background: rgba(0,0,0,0.2); }
-        .sidebar-tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: #888; background: transparent; border: none; border-bottom: 2px solid transparent; transition: all 0.3s; font-weight: bold; }
-        .sidebar-tab.active { color: var(--accent-color); border-bottom: 2px solid var(--accent-color); background: rgba(255,255,255,0.05); }
+        .sidebar-tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: var(--text-color); opacity: 0.6; background: transparent; border: none; border-bottom: 2px solid transparent; transition: all 0.3s; font-weight: bold; }
+        .sidebar-tab.active { color: var(--accent-color); opacity: 1; border-bottom: 2px solid var(--accent-color); background: rgba(255,255,255,0.05); }
         #sidebar-content { overflow-y: auto; flex-grow: 1; }
-        .sidebar-item { padding: 14px 15px; border-bottom: 1px solid #333; color: #ccc; cursor: pointer; font-size: 14px; display: flex; justify-content: space-between; align-items: center; transition: background 0.2s; }
-        .sidebar-item:hover { background: rgba(255,255,255,0.05); color: white; }
+        .sidebar-item { padding: 14px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--text-color); cursor: pointer; font-size: 14px; display: flex; justify-content: space-between; align-items: center; transition: background 0.2s; }
+        .sidebar-item:hover { background: rgba(255,255,255,0.05); }
         .sidebar-item.result { border-left: 3px solid var(--accent-color); background: rgba(0,0,0,0.2); }
-        .bookmark-delete { color: #666; padding: 5px; cursor: pointer; }
-        .bookmark-delete:hover { color: #c0392b; }
+        .bookmark-delete { color: var(--text-color); opacity: 0.5; padding: 5px; cursor: pointer; }
+        .bookmark-delete:hover { color: #c0392b; opacity: 1; }
         #sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2400; display: none; backdrop-filter: blur(2px); }
         #sidebar-overlay.active { display: block; }
 
         /* ===== BOOK VIEWPORT ===== */
-        #book-viewport { flex-grow: 1; position: relative; background: #252525; overflow: hidden; display: flex; justify-content: center; align-items: center; perspective: 2000px; }
+        #book-viewport { flex-grow: 1; position: relative; background: #111; overflow: hidden; display: flex; justify-content: center; align-items: center; perspective: 2000px; }
         #viewer { width: 100%; height: 100%; background: var(--paper-color); z-index: 10; position: absolute; transition: background 0.3s; }
         
         #page-peel { position: absolute; top: 0; width: 100%; height: 100%; z-index: 100; pointer-events: none; display: none; background: var(--paper-color); backface-visibility: hidden; will-change: transform, clip-path; box-shadow: inset 0 0 20px rgba(0,0,0,0.1); transition: background 0.3s; }
@@ -173,7 +185,7 @@
     <div class="toolbar-group group-settings">
         <button onclick="changeFontSize(-10)" title="Zoom Out"><i class="fas fa-minus"></i></button>
         <button onclick="changeFontSize(10)" title="Zoom In"><i class="fas fa-plus"></i></button>
-        <button onclick="toggleTheme()" title="Theme"><i class="fas fa-adjust"></i></button>
+        <button onclick="toggleTheme()" title="Theme (Light/Dark/Sepia)"><i class="fas fa-adjust"></i></button>
     </div>
 </div>
 
@@ -214,7 +226,11 @@
     
     // State
     let currentFontSize = 100;
-    let isDarkMode = false;
+    
+    // THEME STATE: 'light' | 'dark' | 'sepia'
+    let currentTheme = 'light';
+    const THEME_ORDER = ['light', 'dark', 'sepia'];
+
     let currentTab = 'toc';
     let navigationData = []; 
     let isHighlightMode = false;
@@ -236,6 +252,7 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
+    // UPDATED: Added Sepia Theme
     const THEMES = {
         light: { 
             body: { 
@@ -252,6 +269,14 @@
                 "font-family": "Georgia",
             },
             "::selection": { "background": "rgba(255, 255, 0, 0.4)" }
+        },
+        sepia: {
+            body: { 
+                "color": "#5b4636 !important", 
+                "background": "#f4ecd8 !important", 
+                "font-family": "Georgia",
+            },
+            "::selection": { "background": "rgba(165, 42, 42, 0.3)" }
         }
     };
 
@@ -430,33 +455,49 @@
     function registerThemes() {
         rendition.themes.register("light", THEMES.light);
         rendition.themes.register("dark", THEMES.dark);
+        rendition.themes.register("sepia", THEMES.sepia);
     }
 
-    // UPDATED: Completely Fixed Toggle Theme Logic
+    // UPDATED: Logic to cycle Light -> Dark -> Sepia
     function toggleTheme() {
-        isDarkMode = !isDarkMode;
-        document.body.classList.toggle('dark-mode');
+        // 1. Calculate Next Theme
+        const currentIndex = THEME_ORDER.indexOf(currentTheme);
+        const nextIndex = (currentIndex + 1) % THEME_ORDER.length;
+        currentTheme = THEME_ORDER[nextIndex];
         
-        // 1. Set global theme for FUTURE pages (navigation)
-        if (isDarkMode) {
-            rendition.themes.select("dark");
-            peel.style.background = "#333333"; 
+        showNotification("Theme: " + currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1));
+
+        // 2. Update UI Classes
+        document.body.classList.remove('dark-mode', 'sepia-mode');
+        if (currentTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            peel.style.background = "#333333";
+        } else if (currentTheme === 'sepia') {
+            document.body.classList.add('sepia-mode');
+            peel.style.background = "#f4ecd8";
         } else {
-            rendition.themes.select("light");
             peel.style.background = "#fdfaf5";
         }
 
-        // 2. FORCE update on CURRENT visible page immediately
-        // This fixes the "stuck" issue by modifying the DOM directly without waiting for a re-render
+        // 3. Set Epub Theme
+        rendition.themes.select(currentTheme);
+
+        // 4. MANUAL OVERRIDE (For Instant Update)
         const contents = rendition.getContents();
         if (contents) {
             contents.forEach(content => {
                 if (content.document && content.document.body) {
                     const body = content.document.body;
-                    if (isDarkMode) {
+                    
+                    if (currentTheme === 'dark') {
                         body.style.setProperty("background-color", "#333333", "important");
                         body.style.setProperty("color", "#dcdcdc", "important");
+                    } else if (currentTheme === 'sepia') {
+                        // Sepia Override
+                        body.style.setProperty("background-color", "#f4ecd8", "important");
+                        body.style.setProperty("color", "#5b4636", "important");
                     } else {
+                        // Light Override
                         body.style.setProperty("background-color", "#fdfaf5", "important");
                         body.style.setProperty("color", "#000000", "important");
                     }
