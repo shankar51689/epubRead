@@ -279,6 +279,10 @@
     const THEME_ORDER = ['light', 'dark', 'sepia'];
 
     let currentTab = 'toc';
+    // Search mode state (prevents search UI from breaking sidebar tabs)
+    let isSearchMode = false;
+    let preSearchTab = 'toc';
+    let lastSearchQuery = '';
     let navigationData = []; 
     let isHighlightMode = false;
     
@@ -380,7 +384,8 @@
 
 
         book.ready.then(() => { book.locations.generate(1000); });
-    })}
+    });
+}
 
     /* --- HIGHLIGHT LOGIC --- */
     function toggleHighlightMode() {
@@ -607,13 +612,66 @@
     }
 
     /* --- SIDEBAR & UI --- */
-    function toggleSidebar() {
-        sidebar.classList.toggle('open');
-        sidebarOverlay.classList.toggle('active');
-        if(sidebar.classList.contains('open')) switchTab(currentTab);
+    function showSidebarTabs(show) {
+        const tabs = document.querySelector('.sidebar-tabs');
+        if (!tabs) return;
+        tabs.style.display = show ? 'flex' : 'none';
+    }
+
+    function enterSearchMode(query) {
+        if (!isSearchMode) preSearchTab = currentTab;
+        isSearchMode = true;
+        lastSearchQuery = query || '';
+        showSidebarTabs(true); // keep tabs visible; user can switch away anytime
+        document.getElementById('sidebar-title').innerText = 'Search Results';
+    }
+
+    function exitSearchMode() {
+        isSearchMode = false;
+        lastSearchQuery = '';
+        showSidebarTabs(true);
+        document.getElementById('sidebar-title').innerText = 'Library';
+        // restore previous tab content
+        switchTab(preSearchTab || currentTab);
+    }
+
+    function toggleSidebar(forceOpen = null) {
+        const isOpen = sidebar.classList.contains('open');
+        const nextOpen = (forceOpen === null) ? !isOpen : !!forceOpen;
+
+        if (nextOpen) {
+            sidebar.classList.add('open');
+            sidebarOverlay.classList.add('active');
+
+            // If we are not in search mode, show normal tab content
+            if (!isSearchMode) {
+                showSidebarTabs(true);
+                document.getElementById('sidebar-title').innerText = 'Library';
+                switchTab(currentTab);
+            }
+        } else {
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('active');
+
+            // IMPORTANT: never leave sidebar in a hidden-tabs state after search
+            if (isSearchMode) {
+                // reset to normal UI so next open shows menu properly
+                isSearchMode = false;
+                lastSearchQuery = '';
+                showSidebarTabs(true);
+                document.getElementById('sidebar-title').innerText = 'Library';
+            }
+        }
     }
 
     function switchTab(tab) {
+        // If search results are showing, switching tabs should restore normal sidebar UI
+        if (isSearchMode) {
+            isSearchMode = false;
+            lastSearchQuery = '';
+            showSidebarTabs(true);
+            document.getElementById('sidebar-title').innerText = 'Library';
+        }
         currentTab = tab;
         document.getElementById('tab-toc').classList.toggle('active', tab === 'toc');
         document.getElementById('tab-bookmarks').classList.toggle('active', tab === 'bookmarks');
@@ -792,34 +850,107 @@
         }
     }
 
-    function toggleSearch() { searchContainer.classList.toggle('active'); if(searchContainer.classList.contains('active')) searchInput.focus(); }
-    function handleSearch(e) {
-        if (e.key === 'Enter') {
-            const query = e.target.value;
-            if(!query) return;
-            showNotification("Searching...");
-            toggleSearch(); sidebar.classList.add('open'); sidebarOverlay.classList.add('active');
-            document.querySelector('.sidebar-tabs').style.display = 'none';
-            document.getElementById('sidebar-title').innerText = "Search Results";
-            sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
-            Promise.all(book.spine.spineItems.map(item => item.load(book.load.bind(book)).then(item.find.bind(item, query)).finally(item.unload.bind(item)))).then(results => {
-                sidebarContent.innerHTML = "";
-                let backBtn = document.createElement("div"); backBtn.className = "sidebar-item"; backBtn.style.background = "#333";
-                backBtn.innerHTML = "<i class='fas fa-arrow-left'></i> Back to Library";
-                backBtn.onclick = () => { document.querySelector('.sidebar-tabs').style.display = 'flex'; document.getElementById('sidebar-title').innerText = "Library"; switchTab(currentTab); };
-                sidebarContent.appendChild(backBtn);
-                const allResults = [].concat.apply([], results);
-                if(allResults.length === 0) { sidebarContent.innerHTML += "<div class='sidebar-item'>No results found.</div>"; return; }
-                allResults.forEach(result => {
-                    let item = document.createElement("div"); item.className = "sidebar-item result";
-                    const excerpt = result.excerpt.replace(query, `<b>${query}</b>`);
-                    item.innerHTML = `...${excerpt}...`;
-                    item.onclick = () => { rendition.display(result.cfi); toggleSidebar(); };
-                    sidebarContent.appendChild(item);
-                });
-            });
-        }
+    function toggleSearch() {
+        searchContainer.classList.toggle('active');
+        if (searchContainer.classList.contains('active')) searchInput.focus();
     }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function highlightQuery(excerpt, query) {
+        // Safe, case-insensitive highlight without breaking HTML
+        const ex = escapeHtml(excerpt || '');
+        const q = String(query || '').trim();
+        if (!q) return ex;
+        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(escaped, 'gi');
+        return ex.replace(re, (m) => `<b>${m}</b>`);
+    }
+
+    function renderSearchResults(query, allResults) {
+        sidebarContent.innerHTML = '';
+
+        // Header row with actions
+        const header = document.createElement('div');
+        header.className = 'sidebar-item';
+        header.style.background = 'rgba(0,0,0,0.25)';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.gap = '10px';
+
+        const left = document.createElement('div');
+        left.style.display = 'flex';
+        left.style.alignItems = 'center';
+        left.style.gap = '10px';
+        left.innerHTML = `<i class="fas fa-arrow-left"></i><span>Back</span>`;
+
+        const right = document.createElement('div');
+        right.style.opacity = '0.8';
+        right.style.fontSize = '12px';
+        right.innerText = query ? `“${query}”` : '';
+
+        header.appendChild(left);
+        header.appendChild(right);
+
+        header.onclick = () => {
+            // restore normal sidebar
+            exitSearchMode();
+        };
+
+        sidebarContent.appendChild(header);
+
+        if (!allResults || allResults.length === 0) {
+            sidebarContent.innerHTML += "<div class='sidebar-item'>No results found.</div>";
+            return;
+        }
+
+        allResults.forEach(result => {
+            const item = document.createElement('div');
+            item.className = 'sidebar-item result';
+            const excerpt = highlightQuery(result.excerpt || '', query);
+            item.innerHTML = `...${excerpt}...`;
+            item.onclick = () => { rendition.display(result.cfi); toggleSidebar(false); };
+            sidebarContent.appendChild(item);
+        });
+    }
+
+    function handleSearch(e) {
+        if (e.key !== 'Enter') return;
+        const query = (e.target.value || '').trim();
+        if (!query) return;
+
+        showNotification('Searching...');
+        // close the expanding search box
+        if (searchContainer.classList.contains('active')) toggleSearch();
+
+        // open sidebar and show search results without destroying the normal menu
+        toggleSidebar(true);
+        enterSearchMode(query);
+        sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
+
+        Promise.all(
+            book.spine.spineItems.map(item =>
+                item
+                    .load(book.load.bind(book))
+                    .then(item.find.bind(item, query))
+                    .finally(item.unload.bind(item))
+            )
+        ).then(results => {
+            const allResults = [].concat.apply([], results);
+            renderSearchResults(query, allResults);
+        }).catch(() => {
+            sidebarContent.innerHTML = "<div class='sidebar-item'>Search failed. Try again.</div>";
+        });
+    }
+
     function showNotification(msg) {
         const note = document.getElementById('notification');
         note.innerText = msg; note.style.opacity = '1';
