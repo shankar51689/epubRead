@@ -128,6 +128,14 @@
         .swatch-red { background-color: #ff5252; }
         .swatch-green { background-color: #69f0ae; }
 
+        #hl-note-input {
+            background: #333; border: 1px solid #555; color: #eee;
+            padding: 8px; border-radius: 4px; font-size: 13px;
+            width: 100%; box-sizing: border-box; font-family: sans-serif;
+            outline: none;
+        }
+        #hl-note-input:focus { border-color: #888; }
+
         .hl-actions { display: flex; gap: 8px; }
         
         .hl-btn {
@@ -173,6 +181,7 @@
         .bookmark-delete:hover { color: #c0392b; opacity: 1; }
         
         .hl-item-text { font-style: italic; opacity: 0.9; font-size: 13px; border-left: 3px solid #666; padding-left: 8px; display: block; width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hl-item-note { font-size: 12px; color: #aaa; display: block; margin-top: 4px; }
         .hl-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
 
         #sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2400; display: none; backdrop-filter: blur(2px); }
@@ -240,8 +249,9 @@
         <div class="hl-swatch swatch-red" onclick="selectColor('red')" title="Red"></div>
         <div class="hl-swatch swatch-green" onclick="selectColor('green')" title="Green"></div>
     </div>
+    <input type="text" id="hl-note-input" placeholder="Add a comment..." onkeydown="if(event.key === 'Enter') confirmHighlight()">
     <div class="hl-actions">
-        <button class="hl-btn hl-save" onclick="confirmHighlight()">Save Highlight</button>
+        <button class="hl-btn hl-save" onclick="confirmHighlight()">Save</button>
         <button class="hl-btn hl-delete" id="btn-remove-hl" onclick="deleteCurrentHighlight()">Remove</button>
     </div>
 </div>
@@ -273,7 +283,6 @@
     let isHighlightMode = false;
     
     // Highlight Selection State
-    // We store the CFI here so it persists even if user clicks the menu
     let currentSelection = { cfiRange: null, text: "", isEditing: false, existingCfi: null };
     let selectedColor = 'yellow';
 
@@ -288,6 +297,7 @@
     const searchContainer = document.getElementById('search-container');
     const searchInput = document.getElementById('search-input');
     const highlightMenu = document.getElementById('highlight-menu');
+    const noteInput = document.getElementById('hl-note-input');
     const btnRemoveHl = document.getElementById('btn-remove-hl');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
@@ -319,14 +329,14 @@
                 generateTOC();
             });
 
-            // Inject CSS for Highlights directly into the iframe to ensure colors work
+            // 1. Inject Highlighting CSS (Fix for Colors)
             rendition.hooks.content.register(function(contents) {
                 let style = contents.document.createElement('style');
+                // We must use !important to ensure epub.js doesn't override these
                 style.innerHTML = `
                     .hl-yellow { fill: #ffeb3b !important; background-color: rgba(255, 235, 59, 0.4) !important; } 
                     .hl-red    { fill: #ff5252 !important; background-color: rgba(255, 82, 82, 0.4) !important; } 
                     .hl-green  { fill: #69f0ae !important; background-color: rgba(105, 240, 174, 0.4) !important; } 
-                    
                     ::selection { background: rgba(33, 150, 243, 0.3) !important; }
                 `;
                 contents.document.head.appendChild(style);
@@ -339,9 +349,10 @@
                 hideHighlightMenu();
             });
 
-            // 1. TEXT SELECTED: Open Create Menu
+            // 2. CREATE: Text Selected -> Open Menu
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
+                    // Lock Selection CFI immediately
                     currentSelection.cfiRange = cfiRange;
                     currentSelection.isEditing = false;
                     currentSelection.existingCfi = null;
@@ -351,37 +362,44 @@
                         if(range) currentSelection.text = range.toString().substring(0, 100);
                     } catch(e) { currentSelection.text = "Highlight"; }
 
+                    // Show Menu
                     showHighlightMenu(cfiRange, contents);
                 }
             });
             
-            // 2. CLICK ANYWHERE: Check if we clicked a highlight to Edit/Remove
+            // 3. EDIT/REMOVE: Click Event on existing highlights
             rendition.on('click', (e) => {
-                 const target = e.target;
-                 // Detect if clicked element involves a highlight class
+                 // Check if clicked element corresponds to a highlight class
+                 // epub.js wraps text in <g> or <span> with the class we gave it
+                 let target = e.target;
                  let isHighlight = false;
-                 if(target.classList) {
-                     target.classList.forEach(cls => { if(cls.startsWith('hl-')) isHighlight = true; });
-                 }
-                 // Check parent too (common structure)
-                 if(!isHighlight && target.parentElement && target.parentElement.classList) {
-                     target.parentElement.classList.forEach(cls => { if(cls.startsWith('hl-')) isHighlight = true; });
+                 
+                 // Traverse up a bit to see if we clicked inside a highlight wrapper
+                 let checkEl = target;
+                 while(checkEl && checkEl.classList) {
+                     // Check for our specific classes
+                     if(checkEl.classList.contains('hl-yellow') || checkEl.classList.contains('hl-red') || checkEl.classList.contains('hl-green')) {
+                         isHighlight = true;
+                         target = checkEl; // Use this element to get CFI
+                         break;
+                     }
+                     checkEl = checkEl.parentElement;
+                     if(checkEl === document.body) break;
                  }
 
                  if (isHighlight) {
-                     // Get CFI from attribute
-                     let cfi = target.getAttribute('data-epubjs-cfi') || target.parentElement.getAttribute('data-epubjs-cfi');
+                     // Get the CFI stored by epub.js
+                     let cfi = target.getAttribute('data-epubjs-cfi');
                      if (cfi) {
                          e.preventDefault(); 
+                         // Open menu in "Edit" mode
                          openEditMenu(cfi, target.getBoundingClientRect());
                          return;
                      }
                  }
 
-                 // Close menu if clicking empty space
-                 if(!isHighlight && !currentSelection.isEditing) {
-                     hideHighlightMenu();
-                 }
+                 // If clicked blank space, hide menu
+                 hideHighlightMenu();
             });
         });
 
@@ -413,6 +431,7 @@
 
     function selectColor(color) {
         selectedColor = color;
+        // Visual feedback on menu
         document.querySelectorAll('.hl-swatch').forEach(el => el.classList.remove('selected'));
         document.querySelector(`.swatch-${color}`).classList.add('selected');
     }
@@ -420,16 +439,18 @@
     function showHighlightMenu(cfiRange, contents) {
         // Reset UI for Creation
         btnRemoveHl.style.display = "none"; 
-        selectColor('yellow');
+        noteInput.value = "";
+        
+        // Use last selected color or default yellow
+        selectColor(selectedColor || 'yellow');
 
-        // Position logic
+        // Position Logic
         if(contents) {
             try {
                 const range = contents.range(cfiRange);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewer.getBoundingClientRect();
                 
-                // Center above selection
                 let topPos = rect.top + viewerRect.top;
                 let leftPos = rect.left + viewerRect.left + (rect.width / 2);
                 
@@ -447,6 +468,7 @@
         if(data) {
             currentSelection.isEditing = true;
             currentSelection.existingCfi = cfi;
+            noteInput.value = data.note || "";
             
             selectColor(data.color || 'yellow');
             btnRemoveHl.style.display = "block"; // Show delete button
@@ -462,22 +484,23 @@
 
     function hideHighlightMenu() {
         highlightMenu.style.display = "none";
+        noteInput.blur();
     }
 
     function confirmHighlight() {
-        // Case 1: Editing Existing
+        // Mode 1: Edit/Update
         if(currentSelection.isEditing && currentSelection.existingCfi) {
-            updateHighlight(currentSelection.existingCfi, selectedColor);
+            updateHighlight(currentSelection.existingCfi, selectedColor, noteInput.value);
             hideHighlightMenu();
             return;
         }
 
-        // Case 2: Creating New
-        // Use the cached CFI (currentSelection.cfiRange)
+        // Mode 2: Create New
+        // Use the cached CFI we captured on 'selected' event
         if (currentSelection.cfiRange) {
-            addHighlight(currentSelection.cfiRange, selectedColor, currentSelection.text);
+            addHighlight(currentSelection.cfiRange, selectedColor, noteInput.value, currentSelection.text);
             
-            // Clear selection visually
+            // Clear browser selection so it looks clean
             const contents = rendition.getContents()[0];
             if(contents) contents.window.getSelection().removeAllRanges();
             
@@ -485,10 +508,11 @@
         }
     }
 
-    function addHighlight(cfiRange, color, text) {
+    function addHighlight(cfiRange, color, note, text) {
         let highlights = getStoredHighlights();
+        // Prevent duplicates
         if(!highlights.some(h => h.cfi === cfiRange)) {
-            highlights.push({ cfi: cfiRange, color: color, text: text, created: Date.now() });
+            highlights.push({ cfi: cfiRange, color: color, note: note, text: text, created: Date.now() });
             localStorage.setItem('highlights', JSON.stringify(highlights));
         }
         applyHighlightVisual(cfiRange, color);
@@ -496,14 +520,15 @@
         if(sidebar.classList.contains('open') && currentTab === 'highlights') renderHighlights();
     }
 
-    function updateHighlight(cfi, color) {
+    function updateHighlight(cfi, color, note) {
         let highlights = getStoredHighlights();
         const index = highlights.findIndex(h => h.cfi === cfi);
         if(index > -1) {
             highlights[index].color = color;
+            highlights[index].note = note;
             localStorage.setItem('highlights', JSON.stringify(highlights));
             
-            // Remove old visual, add new visual
+            // Re-render: Remove old -> Add new
             rendition.annotations.remove(cfi, 'highlight'); 
             applyHighlightVisual(cfi, color);
             
@@ -520,15 +545,11 @@
     }
 
     function applyHighlightVisual(cfiRange, color) {
-        // IMPORTANT: The className maps to the CSS inside hooks (hl-yellow, hl-red, etc)
+        // Map color to class name defined in CSS above
         const className = `hl-${color}`; 
         
-        rendition.annotations.add('highlight', cfiRange, {}, (e) => {
-            // Re-bind click event so we can edit/delete this new highlight later
-            const target = e.target;
-            const cfi = target.getAttribute('data-epubjs-cfi') || target.parentElement.getAttribute('data-epubjs-cfi');
-            if(cfi) openEditMenu(cfi, target.getBoundingClientRect());
-        }, className);
+        // Add annotation. The 4th arg is a click handler (handled globally by rendition.on('click') now)
+        rendition.annotations.add('highlight', cfiRange, {}, null, className);
     }
 
     function removeHighlight(cfiRange, removeFromStorage = true) {
@@ -598,8 +619,13 @@
             textSnippet.className = "hl-item-text";
             textSnippet.innerText = hl.text ? `"${hl.text}"` : "Text content...";
             
+            let noteDisplay = document.createElement("span");
+            noteDisplay.className = "hl-item-note";
+            noteDisplay.innerText = hl.note ? `Note: ${hl.note}` : "No comment";
+
             container.appendChild(header);
             container.appendChild(textSnippet);
+            container.appendChild(noteDisplay);
             item.appendChild(container);
 
             let trashIcon = document.createElement("i"); 
