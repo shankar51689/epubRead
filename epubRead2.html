@@ -101,9 +101,10 @@
             display: none;
             /* Center nicely */
             transform: translate(-50%, -100%);
-            margin-top: -10px;
+            margin-top: -15px; /* Increase gap slightly so it doesn't cover handle */
             white-space: nowrap;
             border: 1px solid #444;
+            pointer-events: auto; /* Ensure clicks register */
         }
         
         #highlight-menu::after {
@@ -296,9 +297,7 @@
             document.getElementById('loading').style.display = 'none';
             setupGestures();
             
-            // Set initial theme
             rendition.themes.select("light");
-            
             loadHighlights();
 
             book.loaded.navigation.then(function(toc) {
@@ -307,15 +306,26 @@
             });
 
             rendition.hooks.content.register(function(contents) {
-                // Add basic highlight class styles
                 let style = contents.document.createElement('style');
                 style.innerHTML = `
                     .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
                 `;
                 contents.document.head.appendChild(style);
                 
-                // Update selection mode
                 updateContentSelectionMode(contents);
+
+                // FIX: Add selectionchange listener to update menu when dragging handles
+                contents.document.addEventListener('selectionchange', () => {
+                    if(!isHighlightMode) return;
+                    // Debounce slightly if needed, but direct update usually feels snappier
+                    const selection = contents.window.getSelection();
+                    if(selection.rangeCount > 0 && !selection.isCollapsed) {
+                        const range = selection.getRangeAt(0);
+                        // Update current contents for the confirm function
+                        currentSelection.contents = contents; 
+                        showHighlightMenu(null, contents, range); // Pass range directly
+                    }
+                });
             });
 
             rendition.on('relocated', (location) => {
@@ -324,26 +334,25 @@
                 hideHighlightMenu();
             });
 
-            // UPDATED: Multi-word selection Fix
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
-                    // Do NOT addHighlight immediately. 
-                    // Store the range, show the menu, and let user adjust selection handles.
                     currentSelection.cfiRange = cfiRange;
                     currentSelection.contents = contents;
+                    // Note: We prioritize the 'selectionchange' logic for positioning, 
+                    // but this captures the initial event well.
                     showHighlightMenu(cfiRange, contents);
-                    
-                    // Note: We do NOT clear selection here. 
-                    // This allows the native OS selection handles to remain visible.
                 }
             });
             
-            // Hide menu if user clicks elsewhere
             rendition.on('click', () => {
-                 // only hide if we aren't interacting with selection
                  setTimeout(() => {
-                    const sel = window.getSelection();
-                    if(sel.rangeCount === 0) hideHighlightMenu();
+                    // Only hide if selection is truly gone
+                    if(currentSelection.contents) {
+                        const sel = currentSelection.contents.window.getSelection();
+                        if(sel.rangeCount === 0 || sel.isCollapsed) hideHighlightMenu();
+                    } else {
+                        hideHighlightMenu();
+                    }
                  }, 200);
             });
         });
@@ -384,7 +393,6 @@
             if (!styleTag) {
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
-                // Important: Allow extensive selection
                 styleTag.innerHTML = `
                     body {
                         user-select: text !important;
@@ -412,17 +420,25 @@
         }
     }
 
-    function showHighlightMenu(cfiRange, contents) {
-        if(!cfiRange || !contents) return;
+    function showHighlightMenu(cfiRange, contents, rangeObj) {
+        // Can be called with cfiRange OR direct DOM range
+        if(!contents) return;
         
+        let range;
         try {
-            const range = contents.range(cfiRange);
+            if(rangeObj) {
+                range = rangeObj;
+            } else if (cfiRange) {
+                range = contents.range(cfiRange);
+            } else {
+                return;
+            }
+            
             if(!range) return;
             
             const rect = range.getBoundingClientRect();
             const viewerRect = viewer.getBoundingClientRect();
             
-            // Position above the selection
             let topPos = rect.top + viewerRect.top;
             let leftPos = rect.left + viewerRect.left + (rect.width / 2);
 
@@ -438,20 +454,33 @@
         highlightMenu.style.display = "none";
     }
 
-    // UPDATED: Confirm executes the save
+    // UPDATED: Fixed Confirm Logic to Grab LIVE Selection
     function confirmHighlight() {
-        if (!currentSelection.cfiRange) return;
-        
-        // 1. Add visual highlight
-        addHighlight(currentSelection.cfiRange);
-        
-        // 2. Clear native selection now that we are done
+        // 1. Try to get the LIVE selection directly from the window
+        // This solves the issue where expanding selection via handles wasn't updating the internal variable
         if(currentSelection.contents) {
-            const win = currentSelection.contents.window;
-            if(win.getSelection) win.getSelection().removeAllRanges();
+            const selection = currentSelection.contents.window.getSelection();
+            if(selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                if(!range.collapsed) {
+                    // Convert live DOM range to CFI
+                    const cfi = currentSelection.contents.cfiFromRange(range);
+                    addHighlight(cfi);
+                    selection.removeAllRanges();
+                    hideHighlightMenu();
+                    return;
+                }
+            }
         }
-        
-        hideHighlightMenu();
+
+        // 2. Fallback to cached cfiRange (initial tap)
+        if (currentSelection.cfiRange) {
+            addHighlight(currentSelection.cfiRange);
+            if(currentSelection.contents) {
+                currentSelection.contents.window.getSelection().removeAllRanges();
+            }
+            hideHighlightMenu();
+        }
     }
 
     function addHighlight(cfiRange) {
@@ -495,14 +524,12 @@
     }
 
     function toggleTheme() {
-        // 1. Calculate Next Theme
         const currentIndex = THEME_ORDER.indexOf(currentTheme);
         const nextIndex = (currentIndex + 1) % THEME_ORDER.length;
         currentTheme = THEME_ORDER[nextIndex];
         
         showNotification("Theme: " + currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1));
 
-        // 2. Update UI Classes
         document.body.classList.remove('dark-mode', 'sepia-mode');
         if (currentTheme === 'dark') {
             document.body.classList.add('dark-mode');
@@ -514,16 +541,13 @@
             peel.style.background = "#fdfaf5";
         }
 
-        // 3. Set Epub Theme
         rendition.themes.select(currentTheme);
 
-        // 4. MANUAL OVERRIDE (For Instant Update)
         const contents = rendition.getContents();
         if (contents) {
             contents.forEach(content => {
                 if (content.document && content.document.body) {
                     const body = content.document.body;
-                    
                     if (currentTheme === 'dark') {
                         body.style.setProperty("background-color", "#333333", "important");
                         body.style.setProperty("color", "#dcdcdc", "important");
