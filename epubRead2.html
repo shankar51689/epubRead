@@ -149,46 +149,6 @@
         .hl-delete { background: #f44336; display: none; }
         .hl-delete:hover { background: #d32f2f; }
 
-        /* ===== TTS MENU (Popup) ===== */
-        #tts-menu {
-            position: absolute;
-            z-index: 3100;
-            background: #222;
-            padding: 10px 12px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-            display: none;
-            transform: translate(-50%, -100%);
-            margin-top: -20px;
-            border: 1px solid #555;
-            pointer-events: auto;
-            min-width: 160px;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        #tts-menu::after {
-            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
-            border-width: 6px; border-style: solid;
-            border-color: #222 transparent transparent transparent;
-        }
-
-        .tts-actions { display: flex; gap: 10px; justify-content: center; }
-        .tts-btn {
-            width: 40px; height: 34px; border: none; border-radius: 6px;
-            cursor: pointer; color: #fff;
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(255,255,255,0.12);
-            transition: background 0.2s, transform 0.1s;
-        }
-        .tts-btn:active { transform: scale(0.96); background: rgba(255,255,255,0.2); }
-        .tts-play { background: #2ecc71; }
-        .tts-play:hover { filter: brightness(0.95); }
-        .tts-pause { background: #f1c40f; color: #333; }
-        .tts-pause:hover { filter: brightness(0.95); }
-        .tts-stop { background: #e74c3c; }
-        .tts-stop:hover { filter: brightness(0.95); }
-
         /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
             #toolbar { flex-wrap: wrap; height: auto; padding: 10px; gap: 10px; justify-content: center; }
@@ -247,7 +207,9 @@
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
             <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
-            <button onclick="toggleTTS()" id="btn-tts" title="Text to Speech"><i class="fas fa-volume-up"></i></button>
+            <button onclick="toggleTtsMode()" id="btn-tts-select" title="TTS Select"><i class="fas fa-volume-up"></i></button>
+            <button onclick="ttsPlayPause()" id="btn-tts-play" title="TTS Play/Pause"><i class="fas fa-play"></i></button>
+            <button onclick="ttsClear()" id="btn-tts-clear" title="Clear TTS Queue"><i class="fas fa-trash"></i></button>
         </div>
         
         <div class="search-container" id="search-container">
@@ -297,15 +259,6 @@
     </div>
 </div>
 
-<div id="tts-menu">
-    <div style="font-family:sans-serif; font-size:12px; color:#ddd; opacity:0.9;">Text to Speech</div>
-    <div class="tts-actions">
-        <button class="tts-btn tts-play" onclick="ttsSpeakSelected()"><i class="fas fa-play"></i></button>
-        <button class="tts-btn tts-pause" onclick="ttsTogglePause()"><i class="fas fa-pause"></i></button>
-        <button class="tts-btn tts-stop" onclick="ttsStop()"><i class="fas fa-stop"></i></button>
-    </div>
-</div>
-
 <div id="loading">Loading Book...</div>
 <div id="notification">Notification</div>
 
@@ -329,25 +282,19 @@
     const THEME_ORDER = ['light', 'dark', 'sepia'];
 
     let currentTab = 'toc';
-    // Search mode state (prevents search UI from breaking sidebar tabs)
-    let isSearchMode = false;
-    let preSearchTab = 'toc';
-    let lastSearchQuery = '';
     let navigationData = []; 
     let isHighlightMode = false;
-    let isTtsMode = false;
-
-    // Text to Speech State
-    let ttsState = {
-        selectedText: '',
-        utterance: null,
-        isSpeaking: false,
-        isPaused: false
-    };
     
     // Highlight Selection State
     let currentSelection = { cfiRange: null, text: "", isEditing: false, existingCfi: null };
     let selectedColor = 'yellow';
+
+    // TTS State
+    let isTtsMode = false;
+    let ttsQueue = [];
+    let ttsIndex = 0;
+    let ttsCurrentUtterance = null;
+    let ttsIsPaused = false;
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -362,7 +309,11 @@
     const highlightMenu = document.getElementById('highlight-menu');
     const noteInput = document.getElementById('hl-note-input');
     const btnRemoveHl = document.getElementById('btn-remove-hl');
-    const ttsMenu = document.getElementById('tts-menu');
+
+    // TTS buttons
+    const btnTtsSelect = document.getElementById('btn-tts-select');
+    const btnTtsPlay = document.getElementById('btn-tts-play');
+    const btnTtsClear = document.getElementById('btn-tts-clear');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
@@ -416,34 +367,37 @@
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 hideHighlightMenu();
-                hideTtsMenu();
-            });            // 2. Text Selected -> Open Highlight menu (if highlight mode) or TTS menu (otherwise)
+            });
+
+            // 2. CREATE: Text Selected -> Open Menu
             rendition.on('selected', (cfiRange, contents) => {
-                // Cache selection
-                currentSelection.cfiRange = cfiRange;
-                currentSelection.isEditing = false;
-                currentSelection.existingCfi = null;
-
-                let fullText = '';
-                try {
-                    const range = contents.range(cfiRange);
-                    if (range) fullText = range.toString();
-                } catch (_) {
-                    // ignore
-                }
-                ttsState.selectedText = (fullText || '').trim();
-                currentSelection.text = (ttsState.selectedText || 'Highlight').substring(0, 100);
-
                 if (isHighlightMode) {
-                    // Show Highlight Menu
+                    // Lock Selection CFI immediately
+                    currentSelection.cfiRange = cfiRange;
+                    currentSelection.isEditing = false;
+                    currentSelection.existingCfi = null;
+                    
+                    try {
+                        const range = contents.range(cfiRange);
+                        if(range) currentSelection.text = range.toString().substring(0, 100);
+                    } catch(e) { currentSelection.text = "Highlight"; }
+
+                    // Show Menu
                     showHighlightMenu(cfiRange, contents);
                 } else if (isTtsMode) {
-                    // Show TTS Menu
-                    showTtsMenu(cfiRange, contents);
-                    // Auto-speak the selected text
-                    ttsSpeakSelected();
-                } else {
-                    // Neither mode: ignore selection
+                    try {
+                        const range = contents.range(cfiRange);
+                        const txt = (range ? range.toString() : '').trim();
+                        if (txt) {
+                            ttsAdd(txt);
+                        } else {
+                            showNotification('No text selected');
+                        }
+                    } catch (e) {
+                        showNotification('TTS selection failed');
+                    }
+
+                    // Clear selection in this iframe for clean UX
                     try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
                 }
             });
@@ -452,135 +406,12 @@
             // (Editing highlights is handled via the annotation click callback in applyHighlightVisual.)
             rendition.on('click', () => {
                 hideHighlightMenu();
-                hideTtsMenu();
             });
 
 
         book.ready.then(() => { book.locations.generate(1000); });
-    });
-}
+    })}
 
-
-    /* --- TEXT TO SPEECH (TTS) --- */
-    function isTtsSupported() {
-        return typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
-    }
-
-    function toggleTTS() {
-        isTtsMode = !isTtsMode;
-        const btn = document.getElementById('btn-tts');
-        if (isTtsMode) {
-            btn.classList.add('active');
-            showNotification('TTS ON');
-            document.body.style.userSelect = 'auto';
-        } else {
-            btn.classList.remove('active');
-            showNotification('TTS OFF');
-            hideTtsMenu();
-        }
-
-        // Keep selection enabled if either Highlight or TTS mode is active
-        document.body.style.userSelect = (isHighlightMode || isTtsMode) ? 'auto' : 'none';
-        const contents = rendition && rendition.getContents ? rendition.getContents() : null;
-        if (contents) contents.forEach(c => updateContentSelectionMode(c));
-    }
-
-    function showTtsMenu(cfiRange, contents) {
-        if (!ttsMenu) return;
-        // Position near the selected text
-        try {
-            const range = contents.range(cfiRange);
-            const rect = range.getBoundingClientRect();
-            const viewerRect = viewer.getBoundingClientRect();
-
-            const topPos = rect.top + viewerRect.top;
-            const leftPos = rect.left + viewerRect.left + (rect.width / 2);
-
-            ttsMenu.style.top = topPos + 'px';
-            ttsMenu.style.left = leftPos + 'px';
-            ttsMenu.style.display = 'flex';
-        } catch (_) {
-            const viewerRect = viewer.getBoundingClientRect();
-            ttsMenu.style.top = (viewerRect.top + 80) + 'px';
-            ttsMenu.style.left = (viewerRect.left + (viewerRect.width / 2)) + 'px';
-            ttsMenu.style.display = 'flex';
-        }
-    }
-
-    function hideTtsMenu() {
-        if (!ttsMenu) return;
-        ttsMenu.style.display = 'none';
-    }
-
-    function ttsSpeakSelected() {
-        const text = (ttsState.selectedText || '').trim();
-        if (!text) {
-            showNotification('Select text to speak');
-            return;
-        }
-        if (!isTtsSupported()) {
-            showNotification('TTS not supported in this browser');
-            return;
-        }
-
-        // Stop any ongoing speech first
-        ttsStop();
-
-        // Limit to avoid huge utterances
-        const safeText = text.length > 5000 ? text.slice(0, 5000) : text;
-
-        const u = new SpeechSynthesisUtterance(safeText);
-        // Try to pick a reasonable voice matching language
-        try {
-            const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
-            const langPref = (navigator.language || 'en-US');
-            const voice = voices.find(v => v.lang === langPref) || voices.find(v => v.lang && v.lang.startsWith(langPref.split('-')[0])) || voices[0];
-            if (voice) u.voice = voice;
-            u.lang = (voice && voice.lang) ? voice.lang : langPref;
-        } catch (_) {
-            u.lang = navigator.language || 'en-US';
-        }
-        u.rate = 1;
-        u.pitch = 1;
-
-        u.onstart = () => { ttsState.isSpeaking = true; ttsState.isPaused = false; showNotification('Speaking'); };
-        u.onend = () => { ttsState.isSpeaking = false; ttsState.isPaused = false; };
-        u.onerror = () => { ttsState.isSpeaking = false; ttsState.isPaused = false; showNotification('TTS error'); };
-
-        ttsState.utterance = u;
-        window.speechSynthesis.speak(u);
-    }
-
-    function ttsTogglePause() {
-        if (!isTtsSupported()) {
-            showNotification('TTS not supported');
-            return;
-        }
-        if (!ttsState.isSpeaking && !window.speechSynthesis.speaking) {
-            // If nothing is speaking, start
-            ttsSpeakSelected();
-            return;
-        }
-        if (window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
-            ttsState.isPaused = false;
-            showNotification('Resumed');
-        } else {
-            window.speechSynthesis.pause();
-            ttsState.isPaused = true;
-            showNotification('Paused');
-        }
-    }
-
-    function ttsStop() {
-        if (!isTtsSupported()) return;
-        try {
-            window.speechSynthesis.cancel();
-        } catch (_) {}
-        ttsState.isSpeaking = false;
-        ttsState.isPaused = false;
-        ttsState.utterance = null;
-    }
     /* --- HIGHLIGHT LOGIC --- */
     function toggleHighlightMode() {
         isHighlightMode = !isHighlightMode;
@@ -588,12 +419,12 @@
         if (isHighlightMode) {
             btn.classList.add('active');
             showNotification("Highlight ON");
-            document.body.style.userSelect = 'auto';
+            document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
             showNotification("Highlight OFF");
             hideHighlightMenu();
-            document.body.style.userSelect = (isHighlightMode || isTtsMode) ? 'auto' : 'none';
+            document.body.style.userSelect = "none";
         }
         const contents = rendition.getContents();
         if (contents) contents.forEach(content => updateContentSelectionMode(content));
@@ -601,7 +432,7 @@
 
     function updateContentSelectionMode(content) {
         if (!content || !content.document) return;
-        content.document.body.style.userSelect = (isHighlightMode || isTtsMode) ? 'auto' : 'none';
+        content.document.body.style.userSelect = (isHighlightMode || isTtsMode) ? "auto" : "none";
     }
 
     function selectColor(color) {
@@ -612,7 +443,6 @@
     }
 
     function showHighlightMenu(cfiRange, contents) {
-        hideTtsMenu();
         // Reset UI for Creation
         btnRemoveHl.style.display = "none";
         noteInput.value = "";
@@ -806,68 +636,134 @@
         try { return JSON.parse(localStorage.getItem('highlights') || "[]"); } catch (e) { return []; }
     }
 
-    /* --- SIDEBAR & UI --- */
-    function showSidebarTabs(show) {
-        const tabs = document.querySelector('.sidebar-tabs');
-        if (!tabs) return;
-        tabs.style.display = show ? 'flex' : 'none';
-    }
 
-    function enterSearchMode(query) {
-        if (!isSearchMode) preSearchTab = currentTab;
-        isSearchMode = true;
-        lastSearchQuery = query || '';
-        showSidebarTabs(true); // keep tabs visible; user can switch away anytime
-        document.getElementById('sidebar-title').innerText = 'Search Results';
-    }
 
-    function exitSearchMode() {
-        isSearchMode = false;
-        lastSearchQuery = '';
-        showSidebarTabs(true);
-        document.getElementById('sidebar-title').innerText = 'Library';
-        // restore previous tab content
-        switchTab(preSearchTab || currentTab);
-    }
-
-    function toggleSidebar(forceOpen = null) {
-        const isOpen = sidebar.classList.contains('open');
-        const nextOpen = (forceOpen === null) ? !isOpen : !!forceOpen;
-
-        if (nextOpen) {
-            sidebar.classList.add('open');
-            sidebarOverlay.classList.add('active');
-
-            // If we are not in search mode, show normal tab content
-            if (!isSearchMode) {
-                showSidebarTabs(true);
-                document.getElementById('sidebar-title').innerText = 'Library';
-                switchTab(currentTab);
-            }
-        } else {
-            sidebar.classList.remove('open');
-            sidebarOverlay.classList.remove('active');
-
-            // IMPORTANT: never leave sidebar in a hidden-tabs state after search
-            if (isSearchMode) {
-                // reset to normal UI so next open shows menu properly
-                isSearchMode = false;
-                lastSearchQuery = '';
-                showSidebarTabs(true);
-                document.getElementById('sidebar-title').innerText = 'Library';
-            }
+    /* --- TTS (Text To Speech) --- */
+    function toggleTtsMode() {
+        isTtsMode = !isTtsMode;
+        if (btnTtsSelect) btnTtsSelect.classList.toggle('active', isTtsMode);
+        showNotification(isTtsMode ? 'TTS Select ON' : 'TTS Select OFF');
+        // When enabling TTS selection, ensure highlight tool doesn't conflict
+        if (isTtsMode && isHighlightMode) {
+            toggleHighlightMode();
         }
+
+        // Update selection capability in rendered iframes
+        try {
+            const contents = rendition && rendition.getContents ? rendition.getContents() : null;
+            if (contents) contents.forEach(c => updateContentSelectionMode(c));
+        } catch (_) {}
+    }
+
+    function ttsNormalizeText(s) {
+        return (s || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function ttsAdd(text) {
+        const t = ttsNormalizeText(text);
+        if (!t) return;
+        ttsQueue.push(t);
+        showNotification(`Added to TTS (${ttsQueue.length})`);
+    }
+
+    function ttsUpdatePlayIcon() {
+        if (!btnTtsPlay) return;
+        const icon = btnTtsPlay.querySelector('i');
+        if (!icon) return;
+        const speaking = window.speechSynthesis && window.speechSynthesis.speaking;
+        const paused = window.speechSynthesis && window.speechSynthesis.paused;
+        if (speaking && !paused) {
+            icon.className = 'fas fa-pause';
+        } else {
+            icon.className = 'fas fa-play';
+        }
+    }
+
+    function ttsSpeakNext() {
+        if (!window.speechSynthesis) {
+            showNotification('TTS not supported');
+            return;
+        }
+        if (ttsIndex >= ttsQueue.length) {
+            ttsStop(false);
+            showNotification('TTS finished');
+            return;
+        }
+        const utter = new SpeechSynthesisUtterance(ttsQueue[ttsIndex]);
+        ttsCurrentUtterance = utter;
+        utter.onend = () => {
+            ttsIndex += 1;
+            ttsIsPaused = false;
+            ttsSpeakNext();
+        };
+        utter.onerror = () => {
+            ttsIndex += 1;
+            ttsIsPaused = false;
+            ttsSpeakNext();
+        };
+        window.speechSynthesis.speak(utter);
+        ttsUpdatePlayIcon();
+    }
+
+    function ttsPlayPause() {
+        if (!window.speechSynthesis) {
+            showNotification('TTS not supported');
+            return;
+        }
+        if (!ttsQueue.length) {
+            showNotification('Select text for TTS');
+            return;
+        }
+        const synth = window.speechSynthesis;
+        if (synth.speaking) {
+            if (synth.paused) {
+                synth.resume();
+                ttsIsPaused = false;
+            } else {
+                synth.pause();
+                ttsIsPaused = true;
+            }
+            ttsUpdatePlayIcon();
+            return;
+        }
+        // Start from current index (or reset if past end)
+        if (ttsIndex >= ttsQueue.length) ttsIndex = 0;
+        ttsSpeakNext();
+    }
+
+    function ttsStop(resetIndex = true) {
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        ttsCurrentUtterance = null;
+        ttsIsPaused = false;
+        if (resetIndex) ttsIndex = 0;
+        ttsUpdatePlayIcon();
+    }
+
+    function ttsClear() {
+        ttsStop(true);
+        ttsQueue = [];
+        showNotification('TTS cleared');
+    }
+
+    // Keep button icon in sync
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) ttsUpdatePlayIcon();
+    });
+
+    /* --- SIDEBAR & UI --- */
+    function toggleSidebar() {
+        sidebar.classList.toggle('open');
+        sidebarOverlay.classList.toggle('active');
+        if(sidebar.classList.contains('open')) switchTab(currentTab);
     }
 
     function switchTab(tab) {
-        // If search results are showing, switching tabs should restore normal sidebar UI
-        if (isSearchMode) {
-            isSearchMode = false;
-            lastSearchQuery = '';
-            showSidebarTabs(true);
-            document.getElementById('sidebar-title').innerText = 'Library';
-        }
         currentTab = tab;
+        // Always restore sidebar header and tabs when switching
+        document.getElementById('sidebar-title').innerText = 'Library';
+        const tabsEl = document.querySelector('.sidebar-tabs');
+        if (tabsEl) tabsEl.style.display = 'flex';
         document.getElementById('tab-toc').classList.toggle('active', tab === 'toc');
         document.getElementById('tab-bookmarks').classList.toggle('active', tab === 'bookmarks');
         document.getElementById('tab-highlights').classList.toggle('active', tab === 'highlights');
@@ -1045,107 +941,42 @@
         }
     }
 
-    function toggleSearch() {
-        searchContainer.classList.toggle('active');
-        if (searchContainer.classList.contains('active')) searchInput.focus();
-    }
-
-    function escapeHtml(str) {
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
-    function highlightQuery(excerpt, query) {
-        // Safe, case-insensitive highlight without breaking HTML
-        const ex = escapeHtml(excerpt || '');
-        const q = String(query || '').trim();
-        if (!q) return ex;
-        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(escaped, 'gi');
-        return ex.replace(re, (m) => `<b>${m}</b>`);
-    }
-
-    function renderSearchResults(query, allResults) {
-        sidebarContent.innerHTML = '';
-
-        // Header row with actions
-        const header = document.createElement('div');
-        header.className = 'sidebar-item';
-        header.style.background = 'rgba(0,0,0,0.25)';
-        header.style.display = 'flex';
-        header.style.justifyContent = 'space-between';
-        header.style.alignItems = 'center';
-        header.style.gap = '10px';
-
-        const left = document.createElement('div');
-        left.style.display = 'flex';
-        left.style.alignItems = 'center';
-        left.style.gap = '10px';
-        left.innerHTML = `<i class="fas fa-arrow-left"></i><span>Back</span>`;
-
-        const right = document.createElement('div');
-        right.style.opacity = '0.8';
-        right.style.fontSize = '12px';
-        right.innerText = query ? `“${query}”` : '';
-
-        header.appendChild(left);
-        header.appendChild(right);
-
-        header.onclick = () => {
-            // restore normal sidebar
-            exitSearchMode();
-        };
-
-        sidebarContent.appendChild(header);
-
-        if (!allResults || allResults.length === 0) {
-            sidebarContent.innerHTML += "<div class='sidebar-item'>No results found.</div>";
-            return;
-        }
-
-        allResults.forEach(result => {
-            const item = document.createElement('div');
-            item.className = 'sidebar-item result';
-            const excerpt = highlightQuery(result.excerpt || '', query);
-            item.innerHTML = `...${excerpt}...`;
-            item.onclick = () => { rendition.display(result.cfi); toggleSidebar(false); };
-            sidebarContent.appendChild(item);
-        });
-    }
-
+    function toggleSearch() { searchContainer.classList.toggle('active'); if(searchContainer.classList.contains('active')) searchInput.focus(); }
     function handleSearch(e) {
-        if (e.key !== 'Enter') return;
-        const query = (e.target.value || '').trim();
-        if (!query) return;
-
-        showNotification('Searching...');
-        // close the expanding search box
-        if (searchContainer.classList.contains('active')) toggleSearch();
-
-        // open sidebar and show search results without destroying the normal menu
-        toggleSidebar(true);
-        enterSearchMode(query);
-        sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
-
-        Promise.all(
-            book.spine.spineItems.map(item =>
-                item
-                    .load(book.load.bind(book))
-                    .then(item.find.bind(item, query))
-                    .finally(item.unload.bind(item))
-            )
-        ).then(results => {
-            const allResults = [].concat.apply([], results);
-            renderSearchResults(query, allResults);
-        }).catch(() => {
-            sidebarContent.innerHTML = "<div class='sidebar-item'>Search failed. Try again.</div>";
-        });
+        if (e.key === 'Enter') {
+            const query = e.target.value;
+            if(!query) return;
+            showNotification("Searching...");
+            toggleSearch(); sidebar.classList.add('open'); sidebarOverlay.classList.add('active');
+            // Keep sidebar tabs visible so user can navigate after searching
+            const tabsEl = document.querySelector('.sidebar-tabs');
+            if (tabsEl) tabsEl.style.display = 'flex';
+            document.getElementById('sidebar-title').innerText = "Search Results"; // keep tabs visible
+            sidebarContent.innerHTML = "<div class='sidebar-item'>Searching...</div>";
+            Promise.all(book.spine.spineItems.map(item => item.load(book.load.bind(book)).then(item.find.bind(item, query)).finally(item.unload.bind(item)))).then(results => {
+                sidebarContent.innerHTML = "";
+                // Optional: Clear search (tabs are always visible)
+                let clearBtn = document.createElement("div");
+                clearBtn.className = "sidebar-item";
+                clearBtn.style.background = "#333";
+                clearBtn.innerHTML = "<i class='fas fa-times'></i> Clear Search";
+                clearBtn.onclick = () => {
+                    document.getElementById('sidebar-title').innerText = "Library";
+                    switchTab(currentTab);
+                };
+                sidebarContent.appendChild(clearBtn);
+                const allResults = [].concat.apply([], results);
+                if(allResults.length === 0) { sidebarContent.innerHTML += "<div class='sidebar-item'>No results found.</div>"; return; }
+                allResults.forEach(result => {
+                    let item = document.createElement("div"); item.className = "sidebar-item result";
+                    const excerpt = result.excerpt.replace(query, `<b>${query}</b>`);
+                    item.innerHTML = `...${excerpt}...`;
+                    item.onclick = () => { rendition.display(result.cfi); toggleSidebar(); };
+                    sidebarContent.appendChild(item);
+                });
+            });
+        }
     }
-
     function showNotification(msg) {
         const note = document.getElementById('notification');
         note.innerText = msg; note.style.opacity = '1';
