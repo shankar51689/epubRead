@@ -33,7 +33,7 @@
         /* SEPIA MODE VARS */
         body.sepia-mode {
             --bg-color: #f4ecd8;
-            --toolbar-bg: #3e3229; /* Dark Brown for toolbar */
+            --toolbar-bg: #3e3229;
             --text-color: #faeacc;
             --paper-color: #f4ecd8;
             --paper-text: #5b4636;
@@ -90,31 +90,59 @@
         
         .helper-text { color: var(--text-color); font-size:12px; margin:0 10px; white-space: nowrap; opacity: 0.7; }
 
-        /* ===== HIGHLIGHT MENU ===== */
+        /* ===== HIGHLIGHT MENU (ENHANCED) ===== */
         #highlight-menu {
             position: absolute;
             z-index: 3000;
             background: #222;
-            padding: 5px;
-            border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
             display: none;
-            transform: translateX(-50%) translateY(-100%);
-            white-space: nowrap;
+            transform: translate(-50%, -100%);
+            margin-top: -15px;
+            border: 1px solid #444;
+            pointer-events: auto;
+            min-width: 200px;
+            display: flex; flex-direction: column; gap: 8px;
         }
         
         #highlight-menu::after {
-            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -5px;
-            border-width: 5px; border-style: solid;
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+            border-width: 6px; border-style: solid;
             border-color: #222 transparent transparent transparent;
         }
 
-        #highlight-menu button {
-            background: #f1c40f; color: #000; border: none;
-            padding: 6px 12px; border-radius: 3px; font-weight: bold;
-            cursor: pointer; font-size: 13px;
+        /* Color Swatches */
+        .hl-colors { display: flex; gap: 10px; justify-content: center; margin-bottom: 5px; }
+        .hl-swatch { width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
+        .hl-swatch:hover { transform: scale(1.1); }
+        .hl-swatch.selected { border-color: #fff; box-shadow: 0 0 5px rgba(255,255,255,0.5); }
+        
+        .swatch-yellow { background-color: #f1c40f; }
+        .swatch-red { background-color: #e74c3c; }
+        .swatch-green { background-color: #2ecc71; }
+
+        /* Inputs & Buttons */
+        #hl-note-input {
+            background: #333; border: 1px solid #444; color: #eee;
+            padding: 6px; border-radius: 4px; font-size: 13px;
+            width: 100%; box-sizing: border-box;
+            font-family: sans-serif;
         }
-        #highlight-menu button:hover { background: #d4ac0d; }
+        
+        .hl-actions { display: flex; gap: 8px; }
+        
+        .hl-btn {
+            flex: 1; padding: 6px; border: none; border-radius: 4px;
+            font-size: 12px; font-weight: bold; cursor: pointer;
+            color: #fff; transition: background 0.2s;
+        }
+        .hl-save { background: #3498db; }
+        .hl-save:hover { background: #2980b9; }
+        
+        .hl-delete { background: #e74c3c; display: none; }
+        .hl-delete:hover { background: #c0392b; }
 
         /* ===== SIDEBAR & LAYOUT ===== */
         @media (max-width: 768px) {
@@ -203,8 +231,17 @@
     <div id="sidebar-content"></div>
 </div>
 
-<div id="highlight-menu">
-    <button onclick="confirmHighlight()">Highlight Selection</button>
+<div id="highlight-menu" style="display:none;">
+    <div class="hl-colors">
+        <div class="hl-swatch swatch-yellow selected" onclick="selectColor('yellow')"></div>
+        <div class="hl-swatch swatch-red" onclick="selectColor('red')"></div>
+        <div class="hl-swatch swatch-green" onclick="selectColor('green')"></div>
+    </div>
+    <input type="text" id="hl-note-input" placeholder="Add a comment..." onkeydown="if(event.key === 'Enter') confirmHighlight()">
+    <div class="hl-actions">
+        <button class="hl-btn hl-save" onclick="confirmHighlight()">Save</button>
+        <button class="hl-btn hl-delete" id="btn-remove-hl" onclick="deleteCurrentHighlight()">Delete</button>
+    </div>
 </div>
 
 <div id="loading">Loading Book...</div>
@@ -227,7 +264,7 @@
     // State
     let currentFontSize = 100;
     
-    // THEME STATE: 'light' | 'dark' | 'sepia'
+    // THEME STATE
     let currentTheme = 'light';
     const THEME_ORDER = ['light', 'dark', 'sepia'];
 
@@ -236,7 +273,9 @@
     let isHighlightMode = false;
     
     // Selection State
-    let currentSelection = { cfiRange: null, contents: null };
+    // We now track if we are editing an existing one
+    let currentSelection = { cfiRange: null, contents: null, isEditing: false, existingCfi: null };
+    let selectedColor = 'yellow';
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -249,10 +288,11 @@
     const searchContainer = document.getElementById('search-container');
     const searchInput = document.getElementById('search-input');
     const highlightMenu = document.getElementById('highlight-menu');
+    const noteInput = document.getElementById('hl-note-input');
+    const btnRemoveHl = document.getElementById('btn-remove-hl');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
-    // UPDATED: Added Sepia Theme
     const THEMES = {
         light: { 
             body: { 
@@ -294,9 +334,7 @@
             document.getElementById('loading').style.display = 'none';
             setupGestures();
             
-            // Set initial theme
             rendition.themes.select("light");
-            
             loadHighlights();
 
             book.loaded.navigation.then(function(toc) {
@@ -305,15 +343,29 @@
             });
 
             rendition.hooks.content.register(function(contents) {
-                // Add basic highlight class styles
                 let style = contents.document.createElement('style');
+                // Added color classes
                 style.innerHTML = `
-                    .epubjs-hl { background-color: rgba(255, 255, 0, 0.5) !important; fill: yellow; } 
+                    .highlight-yellow { background-color: rgba(241, 196, 15, 0.5) !important; fill: yellow; } 
+                    .highlight-red { background-color: rgba(231, 76, 60, 0.5) !important; fill: red; } 
+                    .highlight-green { background-color: rgba(46, 204, 113, 0.5) !important; fill: green; } 
+                    /* For legacy support or default */
+                    .epubjs-hl { background-color: rgba(241, 196, 15, 0.5) !important; }
                 `;
                 contents.document.head.appendChild(style);
                 
-                // Update selection mode
                 updateContentSelectionMode(contents);
+
+                contents.document.addEventListener('selectionchange', () => {
+                    if(!isHighlightMode) return;
+                    const selection = contents.window.getSelection();
+                    if(selection.rangeCount > 0 && !selection.isCollapsed) {
+                        const range = selection.getRangeAt(0);
+                        currentSelection.contents = contents; 
+                        currentSelection.isEditing = false;
+                        showHighlightMenu(null, contents, range); 
+                    }
+                });
             });
 
             rendition.on('relocated', (location) => {
@@ -324,19 +376,50 @@
 
             rendition.on('selected', (cfiRange, contents) => {
                 if (isHighlightMode) {
-                    addHighlight(cfiRange);
-                    if(contents) {
-                        setTimeout(() => {
-                            contents.window.getSelection().removeAllRanges();
-                        }, 100);
-                    }
+                    currentSelection.cfiRange = cfiRange;
+                    currentSelection.contents = contents;
+                    currentSelection.isEditing = false;
+                    showHighlightMenu(cfiRange, contents);
                 }
             });
             
-            rendition.on('click', () => hideHighlightMenu());
+            // Handle clicking existing highlights to View/Edit Note
+            rendition.on('click', (e) => {
+                 const target = e.target;
+                 // Check if clicked element is a highlight
+                 // Epubjs usually wraps text in <span class="... highlight-yellow">
+                 let clickedCfi = null;
+                 if(target.hasAttribute('data-epubjs-cfi')) {
+                     clickedCfi = target.getAttribute('data-epubjs-cfi');
+                 } else if (target.parentElement && target.parentElement.hasAttribute('data-epubjs-cfi')) {
+                     clickedCfi = target.parentElement.getAttribute('data-epubjs-cfi');
+                 }
+
+                 if(clickedCfi && isHighlightClass(target)) {
+                     e.preventDefault();
+                     openEditMenu(clickedCfi, target);
+                     return;
+                 }
+
+                 setTimeout(() => {
+                    if(currentSelection.contents) {
+                        const sel = currentSelection.contents.window.getSelection();
+                        if(sel.rangeCount === 0 || sel.isCollapsed) hideHighlightMenu();
+                    } else {
+                        hideHighlightMenu();
+                    }
+                 }, 200);
+            });
         });
 
         book.ready.then(() => { book.locations.generate(1000); });
+    }
+
+    function isHighlightClass(el) {
+        if(!el.classList) return false;
+        return el.classList.contains('highlight-yellow') || 
+               el.classList.contains('highlight-red') || 
+               el.classList.contains('highlight-green');
     }
 
     /* --- HIGHLIGHT LOGIC --- */
@@ -346,7 +429,7 @@
         
         if (isHighlightMode) {
             btn.classList.add('active');
-            showNotification("Highlight ON: Drag to select text");
+            showNotification("Highlight ON: Select text to highlight");
             document.body.style.userSelect = "auto";
         } else {
             btn.classList.remove('active');
@@ -373,14 +456,9 @@
                 styleTag = doc.createElement('style');
                 styleTag.id = styleId;
                 styleTag.innerHTML = `
-                    * {
-                        user-select: text !important;
-                        -webkit-user-select: text !important;
-                        cursor: text !important;
-                    }
-                    ::selection {
-                        background: rgba(255, 255, 0, 0.3) !important;
-                    }
+                    body { user-select: text !important; -webkit-user-select: text !important; cursor: text !important; touch-action: pan-y !important; }
+                    * { user-select: text !important; -webkit-user-select: text !important; }
+                    ::selection { background: rgba(255, 255, 0, 0.3) !important; }
                 `;
                 doc.head.appendChild(styleTag);
             }
@@ -394,56 +472,169 @@
         }
     }
 
-    function showHighlightMenu(cfiRange, contents) {
-        currentSelection.cfiRange = cfiRange;
-        currentSelection.contents = contents;
-        const range = contents.range(cfiRange);
-        const rect = range.getBoundingClientRect();
-        const viewerRect = viewer.getBoundingClientRect();
-        highlightMenu.style.top = (rect.top + viewerRect.top - 40) + "px";
-        highlightMenu.style.left = (rect.left + viewerRect.left + (rect.width / 2)) + "px";
-        highlightMenu.style.display = "block";
+    function selectColor(color) {
+        selectedColor = color;
+        // Update UI
+        document.querySelectorAll('.hl-swatch').forEach(el => el.classList.remove('selected'));
+        document.querySelector(`.swatch-${color}`).classList.add('selected');
+    }
+
+    function showHighlightMenu(cfiRange, contents, rangeObj) {
+        // Reset UI for Creation
+        currentSelection.isEditing = false;
+        currentSelection.existingCfi = null;
+        noteInput.value = "";
+        btnRemoveHl.style.display = "none";
+        selectColor('yellow'); // Default
+
+        positionMenu(cfiRange, contents, rangeObj);
+    }
+
+    function openEditMenu(cfi, targetEl) {
+        // Find stored highlight data
+        const highlights = getStoredHighlights();
+        const data = highlights.find(h => h.cfi === cfi);
+        
+        if(data) {
+            currentSelection.isEditing = true;
+            currentSelection.existingCfi = cfi;
+            noteInput.value = data.note || "";
+            selectColor(data.color || 'yellow');
+            btnRemoveHl.style.display = "block";
+
+            // Position menu near the element
+            const rect = targetEl.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            
+            let topPos = rect.top + viewerRect.top;
+            let leftPos = rect.left + viewerRect.left + (rect.width / 2);
+
+            highlightMenu.style.top = topPos + "px";
+            highlightMenu.style.left = leftPos + "px";
+            highlightMenu.style.display = "flex";
+        }
+    }
+
+    function positionMenu(cfiRange, contents, rangeObj) {
+        if(!contents) return;
+        let range;
+        try {
+            if(rangeObj) {
+                range = rangeObj;
+            } else if (cfiRange) {
+                range = contents.range(cfiRange);
+            } else {
+                return;
+            }
+            if(!range) return;
+            
+            const rect = range.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            
+            let topPos = rect.top + viewerRect.top;
+            let leftPos = rect.left + viewerRect.left + (rect.width / 2);
+
+            highlightMenu.style.top = topPos + "px";
+            highlightMenu.style.left = leftPos + "px";
+            highlightMenu.style.display = "flex";
+        } catch(e) { console.error(e); }
     }
 
     function hideHighlightMenu() {
         highlightMenu.style.display = "none";
+        noteInput.blur();
     }
 
     function confirmHighlight() {
-        if (!currentSelection.cfiRange) return;
-        addHighlight(currentSelection.cfiRange);
-        if(currentSelection.contents) {
-            currentSelection.contents.window.getSelection().removeAllRanges();
+        if(currentSelection.isEditing && currentSelection.existingCfi) {
+            // Update existing
+            updateHighlight(currentSelection.existingCfi, selectedColor, noteInput.value);
+            hideHighlightMenu();
+            return;
         }
-        hideHighlightMenu();
+
+        // Create New
+        // 1. Try to get the LIVE selection directly
+        if(currentSelection.contents) {
+            const selection = currentSelection.contents.window.getSelection();
+            if(selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                if(!range.collapsed) {
+                    const cfi = currentSelection.contents.cfiFromRange(range);
+                    addHighlight(cfi, selectedColor, noteInput.value);
+                    selection.removeAllRanges();
+                    hideHighlightMenu();
+                    return;
+                }
+            }
+        }
+
+        // 2. Fallback
+        if (currentSelection.cfiRange) {
+            addHighlight(currentSelection.cfiRange, selectedColor, noteInput.value);
+            if(currentSelection.contents) {
+                currentSelection.contents.window.getSelection().removeAllRanges();
+            }
+            hideHighlightMenu();
+        }
     }
 
-    function addHighlight(cfiRange) {
-        rendition.annotations.add('highlight', cfiRange, {}, (e) => {
-            removeHighlight(cfiRange);
-        });
-
+    function addHighlight(cfiRange, color, note) {
+        // Save to storage
         let highlights = getStoredHighlights();
-        if(!highlights.includes(cfiRange)){
-            highlights.push(cfiRange);
+        // Check duplicate
+        if(!highlights.some(h => h.cfi === cfiRange)) {
+            highlights.push({ cfi: cfiRange, color: color, note: note });
             localStorage.setItem('highlights', JSON.stringify(highlights));
         }
+
+        // Apply visual
+        applyHighlightVisual(cfiRange, color);
+        showNotification("Saved");
+    }
+
+    function updateHighlight(cfi, color, note) {
+        let highlights = getStoredHighlights();
+        const index = highlights.findIndex(h => h.cfi === cfi);
+        if(index > -1) {
+            highlights[index].color = color;
+            highlights[index].note = note;
+            localStorage.setItem('highlights', JSON.stringify(highlights));
+            
+            // Re-render
+            rendition.annotations.remove(cfi, 'highlight');
+            applyHighlightVisual(cfi, color);
+            showNotification("Updated");
+        }
+    }
+
+    function deleteCurrentHighlight() {
+        if(currentSelection.existingCfi) {
+            removeHighlight(currentSelection.existingCfi);
+            hideHighlightMenu();
+        }
+    }
+
+    function applyHighlightVisual(cfiRange, color) {
+        const className = `highlight-${color}`;
+        rendition.annotations.add('highlight', cfiRange, {}, (e) => {}, className);
     }
 
     function removeHighlight(cfiRange) {
         rendition.annotations.remove(cfiRange, 'highlight');
         let highlights = getStoredHighlights();
-        highlights = highlights.filter(h => h !== cfiRange);
+        highlights = highlights.filter(h => h.cfi !== cfiRange);
         localStorage.setItem('highlights', JSON.stringify(highlights));
         showNotification("Highlight Removed");
     }
 
     function loadHighlights() {
         let highlights = getStoredHighlights();
-        highlights.forEach(cfiRange => {
-            rendition.annotations.add('highlight', cfiRange, {}, (e) => {
-                removeHighlight(cfiRange);
-            });
+        highlights.forEach(hl => {
+            // Handle legacy format (string) vs new object
+            let cfi = hl.cfi || hl; 
+            let color = hl.color || 'yellow';
+            applyHighlightVisual(cfi, color);
         });
     }
 
@@ -458,16 +649,13 @@
         rendition.themes.register("sepia", THEMES.sepia);
     }
 
-    // UPDATED: Logic to cycle Light -> Dark -> Sepia
     function toggleTheme() {
-        // 1. Calculate Next Theme
         const currentIndex = THEME_ORDER.indexOf(currentTheme);
         const nextIndex = (currentIndex + 1) % THEME_ORDER.length;
         currentTheme = THEME_ORDER[nextIndex];
         
         showNotification("Theme: " + currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1));
 
-        // 2. Update UI Classes
         document.body.classList.remove('dark-mode', 'sepia-mode');
         if (currentTheme === 'dark') {
             document.body.classList.add('dark-mode');
@@ -479,25 +667,20 @@
             peel.style.background = "#fdfaf5";
         }
 
-        // 3. Set Epub Theme
         rendition.themes.select(currentTheme);
 
-        // 4. MANUAL OVERRIDE (For Instant Update)
         const contents = rendition.getContents();
         if (contents) {
             contents.forEach(content => {
                 if (content.document && content.document.body) {
                     const body = content.document.body;
-                    
                     if (currentTheme === 'dark') {
                         body.style.setProperty("background-color", "#333333", "important");
                         body.style.setProperty("color", "#dcdcdc", "important");
                     } else if (currentTheme === 'sepia') {
-                        // Sepia Override
                         body.style.setProperty("background-color", "#f4ecd8", "important");
                         body.style.setProperty("color", "#5b4636", "important");
                     } else {
-                        // Light Override
                         body.style.setProperty("background-color", "#fdfaf5", "important");
                         body.style.setProperty("color", "#000000", "important");
                     }
@@ -515,7 +698,8 @@
 
         let storedHighlights = getStoredHighlights();
         storedHighlights.forEach(h => {
-             rendition.annotations.remove(h, 'highlight');
+             let cfi = h.cfi || h;
+             rendition.annotations.remove(cfi, 'highlight');
         });
 
         rendition.themes.fontSize(currentFontSize + "%");
