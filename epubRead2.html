@@ -376,7 +376,7 @@
                 hideHighlightMenu();
             });
 
-            // 2. CREATE: Text Selected -> Open Menu
+            // 2. CREATE: Text Selected -> Open Menu or Add to TTS
             rendition.on('selected', (cfiRange, contents) => {
                 // FIXED: Better mobile logic - don't clear selection immediately
                 if (isHighlightMode) {
@@ -400,11 +400,13 @@
                         const range = contents.range(cfiRange);
                         const txt = (range ? range.toString() : '').trim();
                         if (txt) {
-                            ttsAdd(txt);
+                            // Smart Queueing: Handle dragging/expanding selection
+                            ttsAddSmart(txt);
                         } else {
                             showNotification('No text selected');
                         }
-                        try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
+                        // CRITICAL FIX: DO NOT clear ranges ("removeAllRanges")
+                        // allowing the user to continue dragging the sliders.
                     } catch (e) {
                         showNotification('TTS selection failed');
                     }
@@ -721,6 +723,32 @@
         return (s || '').replace(/\s+/g, ' ').trim();
     }
 
+    // FIXED: Smart Add to prevent duplicates when dragging handles
+    function ttsAddSmart(text) {
+        const t = ttsNormalizeText(text);
+        if (!t) return;
+
+        // If queue is not empty, check if we are just expanding the last item
+        if (ttsQueue.length > 0) {
+            const last = ttsQueue[ttsQueue.length - 1];
+            // If new text contains previous text (expansion), replace it
+            if (t.includes(last) && t !== last) {
+                ttsQueue[ttsQueue.length - 1] = t;
+                showNotification(`TTS Expanded`);
+                return;
+            }
+        }
+        
+        // Check if exact same text is already at the end (debounce)
+        if (ttsQueue.length > 0 && ttsQueue[ttsQueue.length - 1] === t) {
+            return;
+        }
+
+        ttsQueue.push(t);
+        showNotification(`Added to TTS (${ttsQueue.length})`);
+    }
+
+    // Original basic add (kept for fallback)
     function ttsAdd(text) {
         const t = ttsNormalizeText(text);
         if (!t) return;
