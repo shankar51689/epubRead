@@ -92,18 +92,17 @@
 
         /* ===== HIGHLIGHT MENU (Popup) ===== */
         #highlight-menu {
-            position: fixed; /* FIXED: Changed from absolute to fixed for better mobile handling */
+            position: fixed; 
             z-index: 3000;
             background: #222;
             padding: 12px;
             border-radius: 8px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.6);
             display: none;
-            /* Transform removed here, handled in JS positioning logic */
             border: 1px solid #555;
             pointer-events: auto;
             min-width: 180px;
-            max-width: 90vw; /* FIXED: Prevent overflow on small screens */
+            max-width: 90vw;
             flex-direction: column; gap: 10px;
         }
         
@@ -149,11 +148,12 @@
         .hl-delete { background: #f44336; display: none; }
         .hl-delete:hover { background: #d32f2f; }
 
-        /* FIXED: Helper class for iframe content */
+        /* FIXED: Helper class for iframe content to ensure deep selection */
+        .selectable-mode, 
         .selectable-mode * {
             user-select: text !important;
             -webkit-user-select: text !important;
-            -webkit-touch-callout: default !important;
+            -webkit-touch-callout: default !important; /* Allow native callout/handles */
         }
 
         /* ===== SIDEBAR & LAYOUT ===== */
@@ -380,6 +380,9 @@
             rendition.on('selected', (cfiRange, contents) => {
                 // FIXED: Better mobile logic - don't clear selection immediately
                 if (isHighlightMode) {
+                    // Check if we are just expanding an existing selection (menu is already open)
+                    const isExpanding = highlightMenu.style.display === 'flex';
+                    
                     currentSelection.cfiRange = cfiRange;
                     currentSelection.isEditing = false;
                     currentSelection.existingCfi = null;
@@ -389,11 +392,9 @@
                         if(range) currentSelection.text = range.toString().substring(0, 100);
                     } catch(e) { currentSelection.text = "Highlight"; }
 
-                    // Show Menu with Robust Positioning
-                    showHighlightMenu(cfiRange, contents);
+                    // Show Menu with Robust Positioning, passing isExpanding flag
+                    showHighlightMenu(cfiRange, contents, isExpanding);
                     
-                    // NOTE: We do NOT remove ranges here ("removeAllRanges"). 
-                    // Let the user see what they selected until they click "Save".
                 } else if (isTtsMode) {
                     try {
                         const range = contents.range(cfiRange);
@@ -440,19 +441,34 @@
         if (contents) contents.forEach(content => updateContentSelectionMode(content));
     }
 
-    // FIXED: Robust content selection update
+    // FIXED: Robust content selection update with touch-action and HTML targeting
     function updateContentSelectionMode(content) {
         if (!content || !content.document) return;
+        
+        const doc = content.document;
+        const body = doc.body;
+        const html = doc.documentElement;
+
         if (isHighlightMode || isTtsMode) {
-            content.document.body.classList.add('selectable-mode');
-            content.document.body.style.userSelect = "text";
-            content.document.body.style.webkitUserSelect = "text";
-            content.document.body.style.cursor = "text";
+            body.classList.add('selectable-mode');
+            
+            // Apply to both Body and HTML to catch all touch events
+            [body, html].forEach(el => {
+                el.style.userSelect = "text";
+                el.style.webkitUserSelect = "text";
+                el.style.cursor = "text";
+                // CRITICAL FIX: Allows native manipulation (pan/scroll/select) 
+                // without the browser waiting for double-taps or trapping events
+                el.style.touchAction = "manipulation"; 
+            });
         } else {
-            content.document.body.classList.remove('selectable-mode');
-            content.document.body.style.userSelect = "none";
-            content.document.body.style.webkitUserSelect = "none";
-            content.document.body.style.cursor = "default";
+            body.classList.remove('selectable-mode');
+            [body, html].forEach(el => {
+                el.style.userSelect = "none";
+                el.style.webkitUserSelect = "none";
+                el.style.cursor = "default";
+                el.style.touchAction = "auto";
+            });
         }
     }
 
@@ -463,12 +479,14 @@
         document.querySelector(`.swatch-${color}`).classList.add('selected');
     }
 
-    // FIXED: Robust Menu Positioning for Mobile
-    function showHighlightMenu(cfiRange, contents) {
-        // 1. Reset UI
-        btnRemoveHl.style.display = "none";
-        noteInput.value = "";
-        selectColor(selectedColor || 'yellow');
+    // FIXED: Robust Menu Positioning for Mobile + State Preservation
+    function showHighlightMenu(cfiRange, contents, preserveState = false) {
+        // 1. Reset UI only if NOT preserving state (i.e. new selection)
+        if (!preserveState) {
+            btnRemoveHl.style.display = "none";
+            noteInput.value = "";
+            selectColor(selectedColor || 'yellow');
+        }
 
         // 2. Get accurate coordinates handling Iframe offset
         let topPos = 0;
