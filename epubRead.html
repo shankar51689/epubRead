@@ -214,8 +214,10 @@
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
             <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
-            
-            </div>
+            <!--<button onclick="toggleTtsMode()" id="btn-tts-select" title="TTS Select"><i class="fas fa-volume-up"></i></button>-->
+            <!--<button onclick="ttsPlayPause()" id="btn-tts-play" title="TTS Play/Pause"><i class="fas fa-play"></i></button>-->
+            <!--<button onclick="ttsClear()" id="btn-tts-clear" title="Clear TTS Queue"><i class="fas fa-trash"></i></button>-->
+        </div>
         
         <div class="search-container" id="search-container">
             <input type="text" id="search-input" placeholder="Search..." onkeydown="handleSearch(event)">
@@ -315,7 +317,7 @@
     const noteInput = document.getElementById('hl-note-input');
     const btnRemoveHl = document.getElementById('btn-remove-hl');
 
-    // TTS buttons (Might be null if commented out in HTML)
+    // TTS buttons
     const btnTtsSelect = document.getElementById('btn-tts-select');
     const btnTtsPlay = document.getElementById('btn-tts-play');
     const btnTtsClear = document.getElementById('btn-tts-clear');
@@ -703,7 +705,6 @@
     /* --- TTS (Text To Speech) --- */
     function toggleTtsMode() {
         isTtsMode = !isTtsMode;
-        // Check if button exists before toggling class
         if (btnTtsSelect) btnTtsSelect.classList.toggle('active', isTtsMode);
         showNotification(isTtsMode ? 'TTS Select ON' : 'TTS Select OFF');
         // When enabling TTS selection, ensure highlight tool doesn't conflict
