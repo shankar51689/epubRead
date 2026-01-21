@@ -214,10 +214,7 @@
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
             <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
-            <!--<button onclick="toggleTtsMode()" id="btn-tts-select" title="TTS Select"><i class="fas fa-volume-up"></i></button>-->
-            <!--<button onclick="ttsPlayPause()" id="btn-tts-play" title="TTS Play/Pause"><i class="fas fa-play"></i></button>-->
-            <!--<button onclick="ttsClear()" id="btn-tts-clear" title="Clear TTS Queue"><i class="fas fa-trash"></i></button>-->
-        </div>
+            </div>
         
         <div class="search-container" id="search-container">
             <input type="text" id="search-input" placeholder="Search..." onkeydown="handleSearch(event)">
@@ -253,7 +250,7 @@
     <div id="sidebar-content"></div>
 </div>
 
-<div id="highlight-menu">
+<div id="highlight-menu" onclick="event.stopPropagation()">
     <div class="hl-colors">
         <div class="hl-swatch swatch-yellow selected" onclick="selectColor('yellow')" title="Yellow"></div>
         <div class="hl-swatch swatch-red" onclick="selectColor('red')" title="Red"></div>
@@ -373,7 +370,12 @@
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
-                hideHighlightMenu();
+
+                // FIXED: Prevent highlight menu from closing when mobile keyboard opens
+                // (Keyboard opening resizes viewport -> triggers 'relocated')
+                if (document.activeElement !== noteInput) {
+                    hideHighlightMenu();
+                }
             });
 
             // 2. CREATE: Text Selected -> Open Menu or Add to TTS
