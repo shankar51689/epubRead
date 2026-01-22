@@ -643,17 +643,33 @@
         const synth = window.speechSynthesis;
         synth.cancel(); // Clear any pending
 
-        // Get text from the currently rendered chapter/section
-        const contents = rendition.getContents();
+        // FIXED: Get visible range based on CFI
+        const loc = rendition.currentLocation();
+        if (!loc || !loc.start || !loc.end) {
+            showNotification("Location not found");
+            return;
+        }
+
+        // Create range using CFI start and end points
         let text = "";
-        
-        if (contents && contents.length > 0) {
-            // Get innerText of the body of the current chapter
-            text = contents[0].document.body.innerText;
+        try {
+            const rangeStart = rendition.getRange(loc.start.cfi);
+            const rangeEnd = rendition.getRange(loc.end.cfi);
+            
+            // Native DOM Range
+            const range = document.createRange();
+            range.setStart(rangeStart.startContainer, rangeStart.startOffset);
+            range.setEnd(rangeEnd.endContainer, rangeEnd.endOffset);
+            
+            text = range.toString();
+        } catch(e) {
+            // Fallback if range fails
+            const contents = rendition.getContents();
+            if(contents && contents[0]) text = contents[0].document.body.innerText; 
         }
 
         if (!text || text.trim().length === 0) {
-            showNotification("No text on this page");
+            showNotification("No visible text");
             return;
         }
 
