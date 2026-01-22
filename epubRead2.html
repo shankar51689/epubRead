@@ -20,13 +20,12 @@
             --sidebar-bg: #2a2a2a;
         }
 
-        /* DARK MODE VARS - CHANGED TEXT TO WHITE */
         body.dark-mode {
             --bg-color: #121212;
             --toolbar-bg: #000;
-            --text-color: #ffffff; /* Changed from #aaa to #ffffff */
+            --text-color: #ffffff; 
             --paper-color: #333333;
-            --paper-text: #ffffff; /* Changed from #e0e0e0 to #ffffff */
+            --paper-text: #ffffff; 
             --sidebar-bg: #1f1f1f;
         }
 
@@ -270,9 +269,9 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
+    // UPDATED THEMES: Removed simple body rules, we now handle via forceful injection in toggleTheme
     const THEMES = {
         light: { body: { "color": "#000 !important", "background": "#fdfaf5 !important", "font-family": "Georgia" } },
-        // UPDATED: Set text color to #ffffff for dark mode
         dark: { body: { "color": "#ffffff !important", "background": "#333333 !important", "font-family": "Georgia" } },
         sepia: { body: { "color": "#5b4636 !important", "background": "#f4ecd8 !important", "font-family": "Georgia" } }
     };
@@ -309,6 +308,9 @@
                 `;
                 contents.document.head.appendChild(style);
                 updateContentSelectionMode(contents);
+                
+                // Re-apply theme if content loads after theme switch
+                if (currentTheme === 'dark') applyDarkThemeForce(contents);
             });
 
             rendition.on('relocated', (location) => {
@@ -319,7 +321,6 @@
 
                 // STOP TTS ON PAGE CHANGE (Bridge & Native)
                 if (window.ReactNativeWebView && isSpeakingBridge) {
-                    // Send Stop command to RN
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
                     isSpeakingBridge = false;
                     const icon = btnTtsPlay.querySelector('i');
@@ -709,11 +710,30 @@
         rendition.themes.register("dark", THEMES.dark);
         rendition.themes.register("sepia", THEMES.sepia);
     }
+
+    // FIXED: Helper to apply aggressive styles
+    function applyDarkThemeForce(content) {
+        let style = content.document.getElementById('dark-mode-style');
+        if (!style) {
+            style = content.document.createElement('style');
+            style.id = 'dark-mode-style';
+            content.document.head.appendChild(style);
+        }
+        // Force ALL text elements to white
+        style.innerHTML = `
+            body, p, span, div, h1, h2, h3, h4, h5, h6, li, a { 
+                color: #ffffff !important; 
+            }
+        `;
+    }
+
     function toggleTheme() {
         const currentIndex = THEME_ORDER.indexOf(currentTheme);
         const nextIndex = (currentIndex + 1) % THEME_ORDER.length;
         currentTheme = THEME_ORDER[nextIndex];
         showNotification("Theme: " + currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1));
+        
+        // 1. UI Theme
         document.body.classList.remove('dark-mode', 'sepia-mode');
         if (currentTheme === 'dark') {
             document.body.classList.add('dark-mode');
@@ -724,27 +744,39 @@
         } else {
             peel.style.background = "#fdfaf5";
         }
+
+        // 2. Book Theme
         rendition.themes.select(currentTheme);
+        
+        // 3. Force Styles for Dark Mode
         const contents = rendition.getContents();
         if (contents) {
             contents.forEach(content => {
-                if (content.document && content.document.body) {
-                    const body = content.document.body;
-                    if (currentTheme === 'dark') {
-                        body.style.setProperty("background-color", "#333333", "important");
-                        // UPDATED: Set manual override to #ffffff
-                        body.style.setProperty("color", "#ffffff", "important");
-                    } else if (currentTheme === 'sepia') {
-                        body.style.setProperty("background-color", "#f4ecd8", "important");
-                        body.style.setProperty("color", "#5b4636", "important");
-                    } else {
-                        body.style.setProperty("background-color", "#fdfaf5", "important");
-                        body.style.setProperty("color", "#000000", "important");
+                if (currentTheme === 'dark') {
+                    // Aggressive override
+                    applyDarkThemeForce(content);
+                    if (content.document.body) {
+                        content.document.body.style.setProperty("background-color", "#333333", "important");
+                    }
+                } else {
+                    // Remove overrides for Light/Sepia
+                    let style = content.document.getElementById('dark-mode-style');
+                    if (style) style.remove();
+                    
+                    if (content.document.body) {
+                        if (currentTheme === 'sepia') {
+                            content.document.body.style.setProperty("background-color", "#f4ecd8", "important");
+                            content.document.body.style.setProperty("color", "#5b4636", "important");
+                        } else {
+                            content.document.body.style.setProperty("background-color", "#fdfaf5", "important");
+                            content.document.body.style.setProperty("color", "#000000", "important");
+                        }
                     }
                 }
             });
         }
     }
+
     function changeFontSize(amount) {
         currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
         showNotification(`Zoom: ${currentFontSize}%`);
