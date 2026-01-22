@@ -231,6 +231,15 @@
 </div>
 
 <script>
+    // GLOBAL ERROR BOUNDARY - CRITICAL FOR CRASH PREVENTION
+    window.onerror = function(message, source, lineno, colno, error) {
+        console.error("Global Error Caught:", message);
+        // Force cleanup if needed to prevent stuck states
+        if (typeof isDragging !== 'undefined') isDragging = false;
+        // Return true to prevent default browser error handling (which might crash WebView)
+        return true;
+    };
+
     let book, rendition;
     let isDragging = false;
     let startX = 0;
@@ -269,7 +278,6 @@
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
-    // UPDATED THEMES: Removed simple body rules, we now handle via forceful injection in toggleTheme
     const THEMES = {
         light: { body: { "color": "#000 !important", "background": "#fdfaf5 !important", "font-family": "Georgia" } },
         dark: { body: { "color": "#ffffff !important", "background": "#333333 !important", "font-family": "Georgia" } },
@@ -277,114 +285,121 @@
     };
 
     function initReader(url) {
-        book = ePub(url);
-        rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
+        try {
+            book = ePub(url);
+            rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
 
-        let savedLocation = null;
-        try { savedLocation = localStorage.getItem('book-location'); } catch(e) {}
-        const startOptions = savedLocation ? { cfi: savedLocation } : {};
+            let savedLocation = null;
+            try { savedLocation = localStorage.getItem('book-location'); } catch(e) {}
+            const startOptions = savedLocation ? { cfi: savedLocation } : {};
 
-        registerThemes();
+            registerThemes();
 
-        rendition.display(startOptions.cfi).then(() => {
-            document.getElementById('loading').style.display = 'none';
-            setupGestures();
-            rendition.themes.select("light");
-            loadHighlights();
+            rendition.display(startOptions.cfi).then(() => {
+                document.getElementById('loading').style.display = 'none';
+                setupGestures();
+                rendition.themes.select("light");
+                loadHighlights();
 
-            book.loaded.navigation.then(function(toc) {
-                navigationData = toc;
-                generateTOC();
+                book.loaded.navigation.then(function(toc) {
+                    navigationData = toc;
+                    generateTOC();
+                });
+
+                rendition.hooks.content.register(function(contents) {
+                    let style = contents.document.createElement('style');
+                    style.innerHTML = `
+                        .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
+                        .hl-yellow { fill: #ffeb3b !important; }
+                        .hl-red    { fill: #ff5252 !important; }
+                        .hl-green  { fill: #69f0ae !important; }
+                        ::selection { background: rgba(33, 150, 243, 0.3) !important; }
+                    `;
+                    contents.document.head.appendChild(style);
+                    updateContentSelectionMode(contents);
+                    
+                    if (currentTheme === 'dark') applyDarkThemeForce(contents);
+                });
+
+                rendition.on('relocated', (location) => {
+                    try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
+                    checkBookmarkStatus(location.start.cfi);
+                    
+                    if (document.activeElement !== noteInput) hideHighlightMenu();
+
+                    if (window.ReactNativeWebView && isSpeakingBridge) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
+                        isSpeakingBridge = false;
+                        const icon = btnTtsPlay.querySelector('i');
+                        if(icon) icon.className = 'fas fa-play';
+                    } else if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+                        window.speechSynthesis.cancel();
+                        const icon = btnTtsPlay.querySelector('i');
+                        if(icon) icon.className = 'fas fa-play';
+                    }
+                });
+
+                rendition.on('selected', (cfiRange, contents) => {
+                    if (isHighlightMode) {
+                        const isExpanding = highlightMenu.style.display === 'flex';
+                        currentSelection.cfiRange = cfiRange;
+                        currentSelection.isEditing = false;
+                        currentSelection.existingCfi = null;
+                        try {
+                            const range = contents.range(cfiRange);
+                            if(range) currentSelection.text = range.toString().substring(0, 100);
+                        } catch(e) { currentSelection.text = "Highlight"; }
+                        showHighlightMenu(cfiRange, contents, isExpanding);
+                    } else {
+                        try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
+                    }
+                });
+
+                rendition.on('click', () => { hideHighlightMenu(); });
+
             });
-
-            rendition.hooks.content.register(function(contents) {
-                let style = contents.document.createElement('style');
-                style.innerHTML = `
-                    .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
-                    .hl-yellow { fill: #ffeb3b !important; }
-                    .hl-red    { fill: #ff5252 !important; }
-                    .hl-green  { fill: #69f0ae !important; }
-                    ::selection { background: rgba(33, 150, 243, 0.3) !important; }
-                `;
-                contents.document.head.appendChild(style);
-                updateContentSelectionMode(contents);
-                
-                // Re-apply theme if content loads after theme switch
-                if (currentTheme === 'dark') applyDarkThemeForce(contents);
-            });
-
-            rendition.on('relocated', (location) => {
-                try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
-                checkBookmarkStatus(location.start.cfi);
-                
-                if (document.activeElement !== noteInput) hideHighlightMenu();
-
-                // STOP TTS ON PAGE CHANGE (Bridge & Native)
-                if (window.ReactNativeWebView && isSpeakingBridge) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
-                    isSpeakingBridge = false;
-                    const icon = btnTtsPlay.querySelector('i');
-                    if(icon) icon.className = 'fas fa-play';
-                } else if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
-                    window.speechSynthesis.cancel();
-                    const icon = btnTtsPlay.querySelector('i');
-                    if(icon) icon.className = 'fas fa-play';
-                }
-            });
-
-            rendition.on('selected', (cfiRange, contents) => {
-                if (isHighlightMode) {
-                    const isExpanding = highlightMenu.style.display === 'flex';
-                    currentSelection.cfiRange = cfiRange;
-                    currentSelection.isEditing = false;
-                    currentSelection.existingCfi = null;
-                    try {
-                        const range = contents.range(cfiRange);
-                        if(range) currentSelection.text = range.toString().substring(0, 100);
-                    } catch(e) { currentSelection.text = "Highlight"; }
-                    showHighlightMenu(cfiRange, contents, isExpanding);
-                } else {
-                    try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
-                }
-            });
-
-            rendition.on('click', () => { hideHighlightMenu(); });
-
-        book.ready.then(() => { book.locations.generate(1000); });
-    })}
+            book.ready.then(() => { book.locations.generate(1000); });
+        } catch(err) {
+            console.error("Init failed", err);
+        }
+    }
 
     /* --- HIGHLIGHT LOGIC --- */
     function toggleHighlightMode() {
-        isHighlightMode = !isHighlightMode;
-        const btn = document.getElementById('btn-highlight');
-        if (isHighlightMode) {
-            btn.classList.add('active');
-            showNotification("Highlight ON");
-        } else {
-            btn.classList.remove('active');
-            showNotification("Highlight OFF");
-            hideHighlightMenu();
-        }
-        const contents = rendition.getContents();
-        if (contents) contents.forEach(content => updateContentSelectionMode(content));
+        try {
+            isHighlightMode = !isHighlightMode;
+            const btn = document.getElementById('btn-highlight');
+            if (isHighlightMode) {
+                btn.classList.add('active');
+                showNotification("Highlight ON");
+            } else {
+                btn.classList.remove('active');
+                showNotification("Highlight OFF");
+                hideHighlightMenu();
+            }
+            const contents = rendition.getContents();
+            if (contents) contents.forEach(content => updateContentSelectionMode(content));
+        } catch(e) { console.error("Toggle HL Error", e); }
     }
 
     function updateContentSelectionMode(content) {
         if (!content || !content.document) return;
-        const doc = content.document;
-        const body = doc.body;
-        const html = doc.documentElement;
-        if (isHighlightMode) {
-            body.classList.add('selectable-mode');
-            [body, html].forEach(el => {
-                el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; el.style.touchAction = "manipulation"; 
-            });
-        } else {
-            body.classList.remove('selectable-mode');
-            [body, html].forEach(el => {
-                el.style.userSelect = "none"; el.style.webkitUserSelect = "none"; el.style.cursor = "default"; el.style.touchAction = "auto";
-            });
-        }
+        try {
+            const doc = content.document;
+            const body = doc.body;
+            const html = doc.documentElement;
+            if (isHighlightMode) {
+                body.classList.add('selectable-mode');
+                [body, html].forEach(el => {
+                    el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; el.style.touchAction = "manipulation"; 
+                });
+            } else {
+                body.classList.remove('selectable-mode');
+                [body, html].forEach(el => {
+                    el.style.userSelect = "none"; el.style.webkitUserSelect = "none"; el.style.cursor = "default"; el.style.touchAction = "auto";
+                });
+            }
+        } catch(e) { console.error("Selection Mode Error", e); }
     }
 
     function selectColor(color) {
@@ -831,90 +846,125 @@
     }
     
     function updatePeelNext(diff) {
-        const progress = Math.min(Math.max(diff / width, 0), 1);
-        peel.style.display = "block"; dropShadow.style.display = "block";
-        peel.style.transformOrigin = "center right"; peel.style.left = "0"; peel.style.right = "auto";
-        const clipX = 100 - (progress * 100);
-        peel.style.clipPath = `polygon(0 0, ${clipX}% 0, ${clipX}% 100%, 0% 100%)`;
-        peel.style.transform = `translateX(${-progress * 20}px) rotateY(${-progress * 20}deg)`;
-        peelGrad.style.background = `linear-gradient(to left, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.2) ${clipX}%, rgba(255,255,255,0.5) ${clipX+5}%)`;
-        dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.5) ${clipX}%)`;
-        dropShadow.style.opacity = progress;
+        try {
+            const progress = Math.min(Math.max(diff / width, 0), 1);
+            peel.style.display = "block"; dropShadow.style.display = "block";
+            peel.style.transformOrigin = "center right"; peel.style.left = "0"; peel.style.right = "auto";
+            const clipX = 100 - (progress * 100);
+            peel.style.clipPath = `polygon(0 0, ${clipX}% 0, ${clipX}% 100%, 0% 100%)`;
+            peel.style.transform = `translateX(${-progress * 20}px) rotateY(${-progress * 20}deg)`;
+            peelGrad.style.background = `linear-gradient(to left, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.2) ${clipX}%, rgba(255,255,255,0.5) ${clipX+5}%)`;
+            dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0) ${clipX-10}%, rgba(0,0,0,0.5) ${clipX}%)`;
+            dropShadow.style.opacity = progress;
+        } catch(e) { console.error("PeelNext Error", e); }
     }
     function finishNext() {
-        peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
-        peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
-        rendition.next().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.clipPath = "none"; peel.style.transform = "none"; }, 300); });
+        try {
+            peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
+            peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
+            rendition.next().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.clipPath = "none"; peel.style.transform = "none"; }, 300); });
+        } catch(e) { console.error("FinishNext Error", e); }
     }
     function updatePeelPrev(diff) {
-        const progress = Math.min(Math.max(diff / width, 0), 1);
-        peel.style.display = "block"; dropShadow.style.display = "block";
-        peel.style.transformOrigin = "center left"; peel.style.left = "0"; 
-        const clipX = progress * 100;
-        peel.style.clipPath = `polygon(0 0, ${clipX}% 0, ${clipX}% 100%, 0% 100%)`;
-        peel.style.transform = `translateX(0) rotateY(${(1 - progress) * 15}deg)`;
-        peelGrad.style.background = `linear-gradient(to right, rgba(255,255,255,0) ${clipX-15}%, rgba(0,0,0,0.1) ${clipX}%, rgba(0,0,0,0) ${clipX+5}%)`;
-        dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) ${clipX}%)`;
-        dropShadow.style.opacity = progress;
+        try {
+            const progress = Math.min(Math.max(diff / width, 0), 1);
+            peel.style.display = "block"; dropShadow.style.display = "block";
+            peel.style.transformOrigin = "center left"; peel.style.left = "0"; 
+            const clipX = progress * 100;
+            peel.style.clipPath = `polygon(0 0, ${clipX}% 0, ${clipX}% 100%, 0% 100%)`;
+            peel.style.transform = `translateX(0) rotateY(${(1 - progress) * 15}deg)`;
+            peelGrad.style.background = `linear-gradient(to right, rgba(255,255,255,0) ${clipX-15}%, rgba(0,0,0,0.1) ${clipX}%, rgba(0,0,0,0) ${clipX+5}%)`;
+            dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) ${clipX}%)`;
+            dropShadow.style.opacity = progress;
+        } catch(e) { console.error("PeelPrev Error", e); }
     }
     function finishPrev() {
-        peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
-        rendition.prev().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; }, 100); });
+        try {
+            peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
+            rendition.prev().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; }, 100); });
+        } catch(e) { console.error("FinishPrev Error", e); }
     }
-    function resetFlip() { peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; }
+    function resetFlip() { 
+        try {
+            peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; 
+        } catch(e) { console.error("ResetFlip Error", e); }
+    }
     function triggerNext() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); }; animate(); }
     function triggerPrev() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); }; animate(); }
 
+    // GESTURE SETUP WITH SAFETY WRAPPERS
     function setupGestures() {
-        rendition.on("touchstart", e => {
-            if (isHighlightMode) return;
-            startX = e.changedTouches[0].screenX;
-            isDragging = true;
-            width = window.innerWidth;
-            peel.style.transition = 'none';
-            dropShadow.style.transition = 'none';
-        });
+        try {
+            rendition.on("touchstart", e => {
+                try {
+                    if (isHighlightMode) return;
+                    // Strict touch check
+                    if (!e.changedTouches || e.changedTouches.length === 0) return;
+                    
+                    startX = e.changedTouches[0].screenX;
+                    isDragging = true;
+                    width = window.innerWidth;
+                    peel.style.transition = 'none';
+                    dropShadow.style.transition = 'none';
+                } catch(err) { isDragging = false; console.error("TouchStart Error", err); }
+            });
 
-        rendition.on("touchmove", e => {
-            if (isHighlightMode || !isDragging) return;
-            if(e.preventDefault) e.preventDefault(); 
-            const diff = startX - e.changedTouches[0].screenX;
-            if (diff > 0) updatePeelNext(diff);
-            else updatePeelPrev(Math.abs(diff));
-        });
+            rendition.on("touchmove", e => {
+                try {
+                    if (isHighlightMode || !isDragging) return;
+                    if (!e.changedTouches || e.changedTouches.length === 0) return;
+                    
+                    if(e.preventDefault) e.preventDefault(); 
+                    const diff = startX - e.changedTouches[0].screenX;
+                    if (diff > 0) updatePeelNext(diff);
+                    else updatePeelPrev(Math.abs(diff));
+                } catch(err) { isDragging = false; console.error("TouchMove Error", err); }
+            });
 
-        rendition.on("touchend", e => {
-            if (isHighlightMode || !isDragging) return;
-            isDragging = false;
-            const diff = startX - e.changedTouches[0].screenX;
-            if (diff > 100) finishNext();
-            else if (diff < -100) finishPrev();
-            else resetFlip();
-        });
+            rendition.on("touchend", e => {
+                try {
+                    if (isHighlightMode || !isDragging) return;
+                    if (!e.changedTouches || e.changedTouches.length === 0) { isDragging = false; return; }
 
-        rendition.on("mousedown", e => {
-            if (isHighlightMode) return; 
-            startX = e.screenX;
-            isDragging = true;
-            width = window.innerWidth;
-            peel.style.transition = 'none';
-            dropShadow.style.transition = 'none';
-        });
-        rendition.on("mousemove", e => {
-            if (isHighlightMode || !isDragging) return;
-            e.preventDefault();
-            const diff = startX - e.screenX;
-            if (diff > 0) updatePeelNext(diff);
-            else updatePeelPrev(Math.abs(diff));
-        });
-        rendition.on("mouseup", e => {
-            if (isHighlightMode || !isDragging) return;
-            isDragging = false;
-            const diff = startX - e.screenX;
-            if (diff > 100) finishNext();
-            else if (diff < -100) finishPrev();
-            else resetFlip();
-        });
+                    isDragging = false;
+                    const diff = startX - e.changedTouches[0].screenX;
+                    if (diff > 100) finishNext();
+                    else if (diff < -100) finishPrev();
+                    else resetFlip();
+                } catch(err) { isDragging = false; resetFlip(); console.error("TouchEnd Error", err); }
+            });
+
+            // Mouse events (Same safety)
+            rendition.on("mousedown", e => {
+                try {
+                    if (isHighlightMode) return; 
+                    startX = e.screenX;
+                    isDragging = true;
+                    width = window.innerWidth;
+                    peel.style.transition = 'none';
+                    dropShadow.style.transition = 'none';
+                } catch(err) { isDragging = false; }
+            });
+            rendition.on("mousemove", e => {
+                try {
+                    if (isHighlightMode || !isDragging) return;
+                    e.preventDefault();
+                    const diff = startX - e.screenX;
+                    if (diff > 0) updatePeelNext(diff);
+                    else updatePeelPrev(Math.abs(diff));
+                } catch(err) { isDragging = false; }
+            });
+            rendition.on("mouseup", e => {
+                try {
+                    if (isHighlightMode || !isDragging) return;
+                    isDragging = false;
+                    const diff = startX - e.screenX;
+                    if (diff > 100) finishNext();
+                    else if (diff < -100) finishPrev();
+                    else resetFlip();
+                } catch(err) { isDragging = false; resetFlip(); }
+            });
+        } catch(globalErr) { console.error("SetupGestures Failed", globalErr); }
     }
 
     const params = new URLSearchParams(window.location.search);
