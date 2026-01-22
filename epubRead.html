@@ -20,7 +20,6 @@
             --sidebar-bg: #2a2a2a;
         }
 
-        /* DARK MODE VARS */
         body.dark-mode {
             --bg-color: #121212;
             --toolbar-bg: #000;
@@ -30,7 +29,6 @@
             --sidebar-bg: #1f1f1f;
         }
 
-        /* SEPIA MODE VARS */
         body.sepia-mode {
             --bg-color: #f4ecd8;
             --toolbar-bg: #3e3229;
@@ -84,76 +82,44 @@
             pointer-events: none; position: absolute; right: 0;
         }
         
-        .search-container.active #search-input {
-            width: 150px; opacity: 1; pointer-events: all; right: 40px; 
-        }
-        
+        .search-container.active #search-input { width: 150px; opacity: 1; pointer-events: all; right: 40px; }
         .helper-text { color: var(--text-color); font-size:12px; margin:0 10px; white-space: nowrap; opacity: 0.7; }
 
-        /* ===== HIGHLIGHT MENU (Popup) ===== */
+        /* ===== HIGHLIGHT MENU ===== */
         #highlight-menu {
-            position: fixed; 
-            z-index: 3000;
-            background: #222;
-            padding: 12px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-            display: none;
-            border: 1px solid #555;
-            pointer-events: auto;
-            min-width: 180px;
-            max-width: 90vw;
-            flex-direction: column; gap: 10px;
+            position: fixed; z-index: 3000; background: #222; padding: 12px;
+            border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+            display: none; border: 1px solid #555; pointer-events: auto;
+            min-width: 180px; max-width: 90vw; flex-direction: column; gap: 10px;
         }
-        
         #highlight-menu::after {
             content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
-            border-width: 6px; border-style: solid;
-            border-color: #222 transparent transparent transparent;
+            border-width: 6px; border-style: solid; border-color: #222 transparent transparent transparent;
         }
 
         .hl-colors { display: flex; gap: 12px; justify-content: center; margin-bottom: 5px; }
-        
-        /* Color Circles */
-        .hl-swatch { 
-            width: 30px; height: 30px; border-radius: 50%; 
-            cursor: pointer; border: 2px solid #444; 
-            transition: transform 0.2s; 
-        }
+        .hl-swatch { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid #444; transition: transform 0.2s; }
         .hl-swatch:hover { transform: scale(1.15); }
         .hl-swatch.selected { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.8); transform: scale(1.1); }
-        
         .swatch-yellow { background-color: #ffeb3b; }
         .swatch-red { background-color: #ff5252; }
         .swatch-green { background-color: #69f0ae; }
 
         #hl-note-input {
             background: #333; border: 1px solid #555; color: #eee;
-            padding: 8px; border-radius: 4px; font-size: 13px;
-            width: 100%; box-sizing: border-box; font-family: sans-serif;
-            outline: none;
+            padding: 8px; border-radius: 4px; font-size: 13px; width: 100%; box-sizing: border-box; font-family: sans-serif; outline: none;
         }
         #hl-note-input:focus { border-color: #888; }
 
         .hl-actions { display: flex; gap: 8px; }
-        
-        .hl-btn {
-            flex: 1; padding: 8px; border: none; border-radius: 4px;
-            font-size: 12px; font-weight: bold; cursor: pointer;
-            color: #fff; transition: background 0.2s; text-transform: uppercase;
-        }
+        .hl-btn { flex: 1; padding: 8px; border: none; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; color: #fff; transition: background 0.2s; text-transform: uppercase; }
         .hl-save { background: #2196f3; }
         .hl-save:hover { background: #1976d2; }
-        
         .hl-delete { background: #f44336; display: none; }
         .hl-delete:hover { background: #d32f2f; }
 
-        /* FIXED: Helper class for iframe content to ensure deep selection */
-        .selectable-mode, 
-        .selectable-mode * {
-            user-select: text !important;
-            -webkit-user-select: text !important;
-            -webkit-touch-callout: default !important; /* Allow native callout/handles */
+        .selectable-mode, .selectable-mode * {
+            user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default !important;
         }
 
         /* ===== SIDEBAR & LAYOUT ===== */
@@ -167,14 +133,11 @@
         }
 
         #sidebar {
-            position: absolute; top: 0; left: 0; bottom: 0;
-            width: 85%; max-width: 320px; background: var(--sidebar-bg);
-            z-index: 2500; transform: translateX(-100%);
-            transition: transform 0.3s ease; box-shadow: 2px 0 15px rgba(0,0,0,0.5);
+            position: absolute; top: 0; left: 0; bottom: 0; width: 85%; max-width: 320px; background: var(--sidebar-bg);
+            z-index: 2500; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 2px 0 15px rgba(0,0,0,0.5);
             display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.1);
         }
         #sidebar.open { transform: translateX(0); }
-        
         .sidebar-header { padding: 15px; background: rgba(0,0,0,0.2); color: var(--text-color); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); font-weight: bold; }
         .sidebar-tabs { display: flex; background: rgba(0,0,0,0.2); }
         .sidebar-tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: var(--text-color); opacity: 0.6; background: transparent; border: none; border-bottom: 2px solid transparent; transition: all 0.3s; font-weight: bold; }
@@ -183,10 +146,8 @@
         .sidebar-item { padding: 14px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--text-color); cursor: pointer; font-size: 14px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; transition: background 0.2s; gap: 4px; }
         .sidebar-item:hover { background: rgba(255,255,255,0.05); }
         .sidebar-item.result { border-left: 3px solid var(--accent-color); background: rgba(0,0,0,0.2); }
-        
         .bookmark-delete { color: var(--text-color); opacity: 0.5; padding: 5px; cursor: pointer; align-self: flex-end; }
         .bookmark-delete:hover { color: #c0392b; opacity: 1; }
-        
         .hl-item-text { font-style: italic; opacity: 0.9; font-size: 13px; border-left: 3px solid #666; padding-left: 8px; display: block; width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .hl-item-note { font-size: 12px; color: #aaa; display: block; margin-top: 4px; }
         .hl-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
@@ -197,7 +158,6 @@
         /* ===== BOOK VIEWPORT ===== */
         #book-viewport { flex-grow: 1; position: relative; background: #111; overflow: hidden; display: flex; justify-content: center; align-items: center; perspective: 2000px; }
         #viewer { width: 100%; height: 100%; background: var(--paper-color); z-index: 10; position: absolute; transition: background 0.3s; }
-        
         #page-peel { position: absolute; top: 0; width: 100%; height: 100%; z-index: 100; pointer-events: none; display: none; background: var(--paper-color); backface-visibility: hidden; will-change: transform, clip-path; box-shadow: inset 0 0 20px rgba(0,0,0,0.1); transition: background 0.3s; }
         #peel-gradient { position: absolute; inset: 0; background: linear-gradient(to left, rgba(0,0,0,0.2), rgba(255,255,255,0.4) 15%, transparent 100%); }
         #drop-shadow { position: absolute; top: 0; width: 100%; height: 100%; z-index: 50; background: rgba(0,0,0,0.4); display: none; pointer-events: none; transition: opacity 0.1s; }
@@ -214,22 +174,18 @@
             <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
             <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
-            
             <button onclick="ttsPlayPause()" id="btn-tts-play" title="Read Page"><i class="fas fa-play"></i></button>
         </div>
-        
         <div class="search-container" id="search-container">
             <input type="text" id="search-input" placeholder="Search..." onkeydown="handleSearch(event)">
             <button onclick="toggleSearch()" title="Search"><i class="fas fa-search"></i></button>
         </div>
     </div>
-
     <div class="toolbar-group group-nav">
         <button onclick="triggerPrev()" title="Previous"><i class="fas fa-chevron-left"></i></button>
         <span class="helper-text">Swipe / Drag</span>
         <button onclick="triggerNext()" title="Next"><i class="fas fa-chevron-right"></i></button>
     </div>
-
     <div class="toolbar-group group-settings">
         <button onclick="changeFontSize(-10)" title="Zoom Out"><i class="fas fa-minus"></i></button>
         <button onclick="changeFontSize(10)" title="Zoom In"><i class="fas fa-plus"></i></button>
@@ -271,9 +227,7 @@
 <div id="book-viewport">
     <div id="viewer"></div>
     <div id="drop-shadow"></div>
-    <div id="page-peel">
-        <div id="peel-gradient"></div>
-    </div>
+    <div id="page-peel"><div id="peel-gradient"></div></div>
 </div>
 
 <script>
@@ -286,24 +240,19 @@
     let currentFontSize = 100;
     let currentTheme = 'light';
     const THEME_ORDER = ['light', 'dark', 'sepia'];
-
     let currentTab = 'toc';
     let navigationData = []; 
     let isHighlightMode = false;
-    
-    // Highlight Selection State
     let currentSelection = { cfiRange: null, text: "", isEditing: false, existingCfi: null };
     let selectedColor = 'yellow';
 
-    // TTS State
+    // Bridge State for React Native
+    let isSpeakingBridge = false;
+
+    // TTS State (Browser Fallback)
     let isTtsMode = false;
     let ttsQueue = [];
-    let ttsIndex = 0;
-    let ttsCurrentUtterance = null;
-    let ttsIsPaused = false;
-    // Removed auto reading state, sticking to manual play/pause
 
-    // Elements
     const peel = document.getElementById('page-peel');
     const peelGrad = document.getElementById('peel-gradient');
     const viewer = document.getElementById('viewer');
@@ -316,9 +265,6 @@
     const highlightMenu = document.getElementById('highlight-menu');
     const noteInput = document.getElementById('hl-note-input');
     const btnRemoveHl = document.getElementById('btn-remove-hl');
-
-    // TTS buttons
-    const btnTtsSelect = document.getElementById('btn-tts-select');
     const btnTtsPlay = document.getElementById('btn-tts-play');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
@@ -350,7 +296,6 @@
                 generateTOC();
             });
 
-            // 1. Inject Highlighting CSS (Fix for Colors)
             rendition.hooks.content.register(function(contents) {
                 let style = contents.document.createElement('style');
                 style.innerHTML = `
@@ -368,22 +313,19 @@
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
                 
-                // FIXED: Close highlight menu only if not typing
-                if (document.activeElement !== noteInput) {
-                    hideHighlightMenu();
-                }
+                if (document.activeElement !== noteInput) hideHighlightMenu();
 
-                // FIXED: TTS Auto Reset on Page Change
-                // If the user navigates (swipes/next), stop speaking immediately.
-                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+                // STOP TTS ON PAGE CHANGE (Bridge & Native)
+                if (window.ReactNativeWebView && isSpeakingBridge) {
+                    // Send Stop command to RN
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
+                    isSpeakingBridge = false;
+                    const icon = btnTtsPlay.querySelector('i');
+                    if(icon) icon.className = 'fas fa-play';
+                } else if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
                     window.speechSynthesis.cancel();
-                    
-                    // Force UI Update
-                    const btn = document.getElementById('btn-tts-play');
-                    if (btn) {
-                        const icon = btn.querySelector('i');
-                        if (icon) icon.className = 'fas fa-play';
-                    }
+                    const icon = btnTtsPlay.querySelector('i');
+                    if(icon) icon.className = 'fas fa-play';
                 }
             });
 
@@ -398,12 +340,6 @@
                         if(range) currentSelection.text = range.toString().substring(0, 100);
                     } catch(e) { currentSelection.text = "Highlight"; }
                     showHighlightMenu(cfiRange, contents, isExpanding);
-                } else if (isTtsMode) {
-                    try {
-                        const range = contents.range(cfiRange);
-                        const txt = (range ? range.toString() : '').trim();
-                        if (txt) ttsAddSmart(txt);
-                    } catch (e) {}
                 } else {
                     try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
                 }
@@ -435,22 +371,15 @@
         const doc = content.document;
         const body = doc.body;
         const html = doc.documentElement;
-
-        if (isHighlightMode || isTtsMode) {
+        if (isHighlightMode) {
             body.classList.add('selectable-mode');
             [body, html].forEach(el => {
-                el.style.userSelect = "text";
-                el.style.webkitUserSelect = "text";
-                el.style.cursor = "text";
-                el.style.touchAction = "manipulation"; 
+                el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; el.style.touchAction = "manipulation"; 
             });
         } else {
             body.classList.remove('selectable-mode');
             [body, html].forEach(el => {
-                el.style.userSelect = "none";
-                el.style.webkitUserSelect = "none";
-                el.style.cursor = "default";
-                el.style.touchAction = "auto";
+                el.style.userSelect = "none"; el.style.webkitUserSelect = "none"; el.style.cursor = "default"; el.style.touchAction = "auto";
             });
         }
     }
@@ -463,13 +392,9 @@
 
     function showHighlightMenu(cfiRange, contents, preserveState = false) {
         if (!preserveState) {
-            btnRemoveHl.style.display = "none";
-            noteInput.value = "";
-            selectColor(selectedColor || 'yellow');
+            btnRemoveHl.style.display = "none"; noteInput.value = ""; selectColor(selectedColor || 'yellow');
         }
-
-        let topPos = 0;
-        let leftPos = 0;
+        let topPos = 0; let leftPos = 0;
         try {
             const range = contents.range(cfiRange);
             const rect = range.getBoundingClientRect(); 
@@ -480,55 +405,36 @@
             const menuWidth = 200;
             if (leftPos - (menuWidth/2) < 10) leftPos = (menuWidth/2) + 10;
             if (leftPos + (menuWidth/2) > window.innerWidth) leftPos = window.innerWidth - (menuWidth/2) - 10;
-        } catch (e) {
-            topPos = window.innerHeight / 2;
-            leftPos = window.innerWidth / 2;
-        }
-
+        } catch (e) { topPos = window.innerHeight / 2; leftPos = window.innerWidth / 2; }
         highlightMenu.style.transform = "translateX(-50%)"; 
-        highlightMenu.style.top = topPos + "px";
-        highlightMenu.style.left = leftPos + "px";
-        highlightMenu.style.display = "flex";
+        highlightMenu.style.top = topPos + "px"; highlightMenu.style.left = leftPos + "px"; highlightMenu.style.display = "flex";
     }
 
     function openEditMenu(cfi, rect) {
         const highlights = getStoredHighlights();
         const data = highlights.find(h => h.cfi === cfi);
-        
         if(data) {
             const viewerRect = viewer.getBoundingClientRect();
             const r = rect || { top: 80, left: (viewerRect.width / 2), width: 0 };
-            currentSelection.isEditing = true;
-            currentSelection.existingCfi = cfi;
-            noteInput.value = data.note || "";
-            selectColor(data.color || 'yellow');
-            btnRemoveHl.style.display = "block"; 
+            currentSelection.isEditing = true; currentSelection.existingCfi = cfi; noteInput.value = data.note || "";
+            selectColor(data.color || 'yellow'); btnRemoveHl.style.display = "block"; 
             let topPos = r.top + viewerRect.top - 60;
             if (topPos < 50) topPos = r.bottom + viewerRect.top + 10;
             let leftPos = r.left + viewerRect.left + (r.width / 2);
             highlightMenu.style.transform = "translateX(-50%)";
-            highlightMenu.style.top = topPos + "px";
-            highlightMenu.style.left = leftPos + "px";
-            highlightMenu.style.display = "flex";
+            highlightMenu.style.top = topPos + "px"; highlightMenu.style.left = leftPos + "px"; highlightMenu.style.display = "flex";
         }
     }
 
     function hideHighlightMenu() { highlightMenu.style.display = "none"; noteInput.blur(); }
     function confirmHighlight() {
         if (currentSelection.isEditing && currentSelection.existingCfi) {
-            updateHighlight(currentSelection.existingCfi, selectedColor, noteInput.value);
-            hideHighlightMenu();
-            return;
+            updateHighlight(currentSelection.existingCfi, selectedColor, noteInput.value); hideHighlightMenu(); return;
         }
         if (currentSelection.cfiRange) {
             addHighlight(currentSelection.cfiRange, selectedColor, noteInput.value, currentSelection.text);
-            try {
-                const contentsList = rendition.getContents() || [];
-                contentsList.forEach(c => { try { c.window.getSelection().removeAllRanges(); } catch (_) {} });
-            } catch (_) {}
-            currentSelection.cfiRange = null;
-            currentSelection.text = "";
-            hideHighlightMenu();
+            try { const contentsList = rendition.getContents() || []; contentsList.forEach(c => { try { c.window.getSelection().removeAllRanges(); } catch (_) {} }); } catch (_) {}
+            currentSelection.cfiRange = null; currentSelection.text = ""; hideHighlightMenu();
         }
     }
 
@@ -538,8 +444,7 @@
             highlights.push({ cfi: cfiRange, color: color, note: note, text: text, created: Date.now() });
             localStorage.setItem('highlights', JSON.stringify(highlights));
         }
-        applyHighlightVisual(cfiRange, color);
-        showNotification("Saved");
+        applyHighlightVisual(cfiRange, color); showNotification("Saved");
         if(sidebar.classList.contains('open') && currentTab === 'highlights') renderHighlights();
     }
 
@@ -547,11 +452,9 @@
         let highlights = getStoredHighlights();
         const index = highlights.findIndex(h => h.cfi === cfi);
         if(index > -1) {
-            highlights[index].color = color;
-            highlights[index].note = note;
+            highlights[index].color = color; highlights[index].note = note;
             localStorage.setItem('highlights', JSON.stringify(highlights));
-            rendition.annotations.remove(cfi, 'highlight'); 
-            applyHighlightVisual(cfi, color);
+            rendition.annotations.remove(cfi, 'highlight'); applyHighlightVisual(cfi, color);
             showNotification("Updated");
             if(sidebar.classList.contains('open') && currentTab === 'highlights') renderHighlights();
         }
@@ -573,14 +476,8 @@
     function applyHighlightVisual(cfiRange, color) {
         const safeColor = (color === 'yellow' || color === 'red' || color === 'green') ? color : 'yellow';
         rendition.annotations.add('highlight', cfiRange, {}, (e) => {
-            try {
-                if (e && typeof e.preventDefault === 'function') e.preventDefault();
-                if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
-            } catch (_) {}
-            try {
-                const rect = e && e.target && typeof e.target.getBoundingClientRect === 'function' ? e.target.getBoundingClientRect() : null;
-                openEditMenu(cfiRange, rect);
-            } catch (_) { openEditMenu(cfiRange, null); }
+            try { if (e && typeof e.preventDefault === 'function') e.preventDefault(); if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (_) {}
+            try { const rect = e && e.target && typeof e.target.getBoundingClientRect === 'function' ? e.target.getBoundingClientRect() : null; openEditMenu(cfiRange, rect); } catch (_) { openEditMenu(cfiRange, null); }
         }, `hl-${safeColor}`, getHighlightStyles(safeColor));
     }
 
@@ -602,97 +499,83 @@
     function getStoredHighlights() { try { return JSON.parse(localStorage.getItem('highlights') || "[]"); } catch (e) { return []; } }
 
 
-    /* --- TTS (Text To Speech) --- */
+    /* --- TTS (Text To Speech) with React Native Bridge --- */
     
-    // FIXED: Main TTS Toggle Function with Forced UI Update
-    function ttsPlayPause() {
-        if (!window.speechSynthesis) {
-            showNotification('TTS not supported');
-            return;
-        }
-
-        const synth = window.speechSynthesis;
-        const btn = document.getElementById('btn-tts-play');
-        const icon = btn.querySelector('i');
-
-        if (synth.speaking) {
-            // If currently speaking or paused
-            if (synth.paused) {
-                // Resume
-                synth.resume();
-                icon.className = 'fas fa-pause'; // Force UI update immediately
-                showNotification("Resuming...");
-            } else {
-                // Pause
-                synth.pause();
-                icon.className = 'fas fa-play'; // Force UI update immediately
-                showNotification("Paused");
-            }
-        } else {
-            // Start fresh
-            speakCurrentPage();
-        }
-    }
-
-    function speakCurrentPage() {
-        const synth = window.speechSynthesis;
-        const btn = document.getElementById('btn-tts-play');
-        const icon = btn.querySelector('i');
-        
-        synth.cancel(); // Clear any pending
-
-        // Get visible range based on CFI
+    function getVisibleText() {
         const loc = rendition.currentLocation();
-        if (!loc || !loc.start || !loc.end) {
-            showNotification("Location not found");
-            return;
-        }
-
-        let text = "";
+        if (!loc || !loc.start || !loc.end) return null;
         try {
             const rangeStart = rendition.getRange(loc.start.cfi);
             const rangeEnd = rendition.getRange(loc.end.cfi);
             const range = document.createRange();
             range.setStart(rangeStart.startContainer, rangeStart.startOffset);
             range.setEnd(rangeEnd.endContainer, rangeEnd.endOffset);
-            text = range.toString();
+            let text = range.toString().replace(/\s+/g, ' ').trim();
+            return text || null;
         } catch(e) {
             const contents = rendition.getContents();
-            if(contents && contents[0]) text = contents[0].document.body.innerText; 
+            if(contents && contents[0]) return contents[0].document.body.innerText.replace(/\s+/g, ' ').trim();
+            return null;
         }
+    }
 
-        if (!text || text.trim().length === 0) {
-            showNotification("No visible text");
+    function ttsPlayPause() {
+        const btn = document.getElementById('btn-tts-play');
+        const icon = btn.querySelector('i');
+
+        // STRATEGY 1: REACT NATIVE BRIDGE
+        if (window.ReactNativeWebView) {
+            if (isSpeakingBridge) {
+                // User wants to STOP/PAUSE
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
+                isSpeakingBridge = false;
+                icon.className = 'fas fa-play'; // Update UI
+                showNotification("Paused");
+            } else {
+                // User wants to SPEAK
+                const text = getVisibleText();
+                if (!text) { showNotification("No text found"); return; }
+                
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: text }));
+                isSpeakingBridge = true;
+                icon.className = 'fas fa-pause'; // Update UI
+                showNotification("Reading...");
+            }
             return;
         }
 
-        text = text.replace(/\s+/g, ' ').trim();
-        const utter = new SpeechSynthesisUtterance(text);
-        
-        utter.onstart = () => {
-            showNotification("Reading Page...");
-            icon.className = 'fas fa-pause'; // Update UI
-        };
+        // STRATEGY 2: WEB BROWSER NATIVE
+        if (!window.speechSynthesis) { showNotification('TTS not supported'); return; }
+        const synth = window.speechSynthesis;
 
-        utter.onend = () => {
-            icon.className = 'fas fa-play'; // Update UI
-        };
-
-        utter.onerror = (e) => {
-            if (e.error !== 'canceled' && e.error !== 'interrupted') {
-                console.error("TTS Error", e);
+        if (synth.speaking) {
+            if (synth.paused) {
+                synth.resume();
+                icon.className = 'fas fa-pause';
+                showNotification("Resuming...");
+            } else {
+                synth.pause();
+                icon.className = 'fas fa-play';
+                showNotification("Paused");
             }
-            icon.className = 'fas fa-play'; // Update UI
-        };
-
-        synth.speak(utter);
+        } else {
+            const text = getVisibleText();
+            if (!text) { showNotification("No visible text"); return; }
+            
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.onstart = () => { icon.className = 'fas fa-pause'; showNotification("Reading..."); };
+            utter.onend = () => { icon.className = 'fas fa-play'; };
+            utter.onerror = (e) => { 
+                if (e.error !== 'canceled') console.error(e); 
+                icon.className = 'fas fa-play'; 
+            };
+            synth.speak(utter);
+        }
     }
 
-    // Keep button icon in sync on tab switch
+    // Keep button icon in sync on visibility change
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-            // Optional: Handle tab switch logic if needed
-        }
+        if (document.hidden) { } // optional logic
     });
 
     /* --- SIDEBAR & UI --- */

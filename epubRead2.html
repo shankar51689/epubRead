@@ -20,12 +20,13 @@
             --sidebar-bg: #2a2a2a;
         }
 
+        /* DARK MODE VARS - CHANGED TEXT TO WHITE */
         body.dark-mode {
             --bg-color: #121212;
             --toolbar-bg: #000;
-            --text-color: #aaa;
+            --text-color: #ffffff; /* Changed from #aaa to #ffffff */
             --paper-color: #333333;
-            --paper-text: #e0e0e0;
+            --paper-text: #ffffff; /* Changed from #e0e0e0 to #ffffff */
             --sidebar-bg: #1f1f1f;
         }
 
@@ -271,7 +272,8 @@
 
     const THEMES = {
         light: { body: { "color": "#000 !important", "background": "#fdfaf5 !important", "font-family": "Georgia" } },
-        dark: { body: { "color": "#dcdcdc !important", "background": "#333333 !important", "font-family": "Georgia" } },
+        // UPDATED: Set text color to #ffffff for dark mode
+        dark: { body: { "color": "#ffffff !important", "background": "#333333 !important", "font-family": "Georgia" } },
         sepia: { body: { "color": "#5b4636 !important", "background": "#f4ecd8 !important", "font-family": "Georgia" } }
     };
 
@@ -730,7 +732,8 @@
                     const body = content.document.body;
                     if (currentTheme === 'dark') {
                         body.style.setProperty("background-color", "#333333", "important");
-                        body.style.setProperty("color", "#dcdcdc", "important");
+                        // UPDATED: Set manual override to #ffffff
+                        body.style.setProperty("color", "#ffffff", "important");
                     } else if (currentTheme === 'sepia') {
                         body.style.setProperty("background-color", "#f4ecd8", "important");
                         body.style.setProperty("color", "#5b4636", "important");
