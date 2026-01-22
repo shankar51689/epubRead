@@ -375,11 +375,15 @@
 
                 // FIXED: TTS Auto Reset on Page Change
                 // If the user navigates (swipes/next), stop speaking immediately.
-                // The next time they hit "Play", it will read the NEW page.
                 if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
                     window.speechSynthesis.cancel();
-                    ttsIsPaused = false;
-                    ttsUpdatePlayIcon(); // Will show 'Play' icon
+                    
+                    // Force UI Update
+                    const btn = document.getElementById('btn-tts-play');
+                    if (btn) {
+                        const icon = btn.querySelector('i');
+                        if (icon) icon.className = 'fas fa-play';
+                    }
                 }
             });
 
@@ -599,21 +603,8 @@
 
 
     /* --- TTS (Text To Speech) --- */
-    function ttsUpdatePlayIcon() {
-        if (!btnTtsPlay) return;
-        const icon = btnTtsPlay.querySelector('i');
-        const synth = window.speechSynthesis;
-        
-        // If speaking and not paused, show Pause icon
-        if (synth && synth.speaking && !synth.paused) {
-            icon.className = 'fas fa-pause';
-        } else {
-            // If paused or stopped, show Play icon
-            icon.className = 'fas fa-play';
-        }
-    }
-
-    // FIXED: Main TTS Toggle Function (Single Button Logic)
+    
+    // FIXED: Main TTS Toggle Function with Forced UI Update
     function ttsPlayPause() {
         if (!window.speechSynthesis) {
             showNotification('TTS not supported');
@@ -621,49 +612,51 @@
         }
 
         const synth = window.speechSynthesis;
+        const btn = document.getElementById('btn-tts-play');
+        const icon = btn.querySelector('i');
 
         if (synth.speaking) {
-            // If currently speaking, toggle pause/resume
+            // If currently speaking or paused
             if (synth.paused) {
+                // Resume
                 synth.resume();
+                icon.className = 'fas fa-pause'; // Force UI update immediately
                 showNotification("Resuming...");
             } else {
+                // Pause
                 synth.pause();
+                icon.className = 'fas fa-play'; // Force UI update immediately
                 showNotification("Paused");
             }
         } else {
-            // If not speaking, start fresh with current page content
+            // Start fresh
             speakCurrentPage();
         }
-        
-        ttsUpdatePlayIcon();
     }
 
     function speakCurrentPage() {
         const synth = window.speechSynthesis;
+        const btn = document.getElementById('btn-tts-play');
+        const icon = btn.querySelector('i');
+        
         synth.cancel(); // Clear any pending
 
-        // FIXED: Get visible range based on CFI
+        // Get visible range based on CFI
         const loc = rendition.currentLocation();
         if (!loc || !loc.start || !loc.end) {
             showNotification("Location not found");
             return;
         }
 
-        // Create range using CFI start and end points
         let text = "";
         try {
             const rangeStart = rendition.getRange(loc.start.cfi);
             const rangeEnd = rendition.getRange(loc.end.cfi);
-            
-            // Native DOM Range
             const range = document.createRange();
             range.setStart(rangeStart.startContainer, rangeStart.startOffset);
             range.setEnd(rangeEnd.endContainer, rangeEnd.endOffset);
-            
             text = range.toString();
         } catch(e) {
-            // Fallback if range fails
             const contents = rendition.getContents();
             if(contents && contents[0]) text = contents[0].document.body.innerText; 
         }
@@ -673,36 +666,33 @@
             return;
         }
 
-        // Sanitize text
         text = text.replace(/\s+/g, ' ').trim();
-        
         const utter = new SpeechSynthesisUtterance(text);
         
         utter.onstart = () => {
             showNotification("Reading Page...");
-            ttsUpdatePlayIcon();
+            icon.className = 'fas fa-pause'; // Update UI
         };
 
         utter.onend = () => {
-            ttsUpdatePlayIcon(); // Reset to Play icon when done
+            icon.className = 'fas fa-play'; // Update UI
         };
 
         utter.onerror = (e) => {
             if (e.error !== 'canceled' && e.error !== 'interrupted') {
                 console.error("TTS Error", e);
             }
-            ttsUpdatePlayIcon();
+            icon.className = 'fas fa-play'; // Update UI
         };
 
         synth.speak(utter);
     }
 
-    // Helper (kept for compatibility)
-    function ttsAddSmart(text) {} 
-
-    // Keep button icon in sync
+    // Keep button icon in sync on tab switch
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden) ttsUpdatePlayIcon();
+        if (document.hidden) {
+            // Optional: Handle tab switch logic if needed
+        }
     });
 
     /* --- SIDEBAR & UI --- */
