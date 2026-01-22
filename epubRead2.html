@@ -302,7 +302,7 @@
     let ttsIndex = 0;
     let ttsCurrentUtterance = null;
     let ttsIsPaused = false;
-    let ttsAutoReading = false; // New flag for continuous reading
+    let ttsAutoReading = false; // Flag for continuous reading
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -369,8 +369,24 @@
             rendition.on('relocated', (location) => {
                 try { localStorage.setItem('book-location', location.start.cfi); } catch(e){}
                 checkBookmarkStatus(location.start.cfi);
+                
+                // FIXED: Close highlight menu only if not typing
                 if (document.activeElement !== noteInput) {
                     hideHighlightMenu();
+                }
+
+                // FIXED: TTS Auto Reset on Page Change
+                // If the user navigated (swiped, clicked prev/next), we must interrupt the current speech
+                // and start reading the new page immediately if auto-reading is active.
+                if (ttsAutoReading && !ttsIsPaused) {
+                    // Cancel current speech, which triggers onend, 
+                    // but we want to manually restart to avoid race conditions.
+                    window.speechSynthesis.cancel();
+                    
+                    // Small timeout to let the renderer settle
+                    setTimeout(() => {
+                        if (ttsAutoReading) ttsSpeakCurrentPage();
+                    }, 200);
                 }
             });
 
@@ -386,7 +402,6 @@
                     } catch(e) { currentSelection.text = "Highlight"; }
                     showHighlightMenu(cfiRange, contents, isExpanding);
                 } else if (isTtsMode) {
-                    // Selection mode logic (preserved but optional now that Play reads all)
                     try {
                         const range = contents.range(cfiRange);
                         const txt = (range ? range.toString() : '').trim();
@@ -647,7 +662,10 @@
         if (!text || text.trim().length === 0) {
             // If empty (e.g., image only), try next page
             finishNext(); 
-            setTimeout(() => ttsSpeakCurrentPage(), 500); 
+            // Only retry if we haven't manually stopped
+            setTimeout(() => {
+                if(ttsAutoReading) ttsSpeakCurrentPage();
+            }, 500); 
             return;
         }
 
@@ -657,30 +675,36 @@
         // Create Utterance
         const utter = new SpeechSynthesisUtterance(text);
         
-        // Configure Voice (Optional)
-        // const voices = window.speechSynthesis.getVoices();
-        // utter.voice = voices[0]; 
-
         utter.onstart = () => {
             showNotification("Reading...");
             ttsUpdatePlayIcon();
         };
 
         utter.onend = () => {
-            // When finished reading this chunk, turn page and read next
-            if (ttsAutoReading) {
+            // This event fires when speaking finishes naturally OR when cancelled.
+            // We only want to proceed to NEXT page if it finished naturally.
+            // If it was cancelled (due to page turn), we do nothing here,
+            // because the 'relocated' event will restart reading the NEW page.
+            
+            // NOTE: SpeechSynthesis doesn't give a clean property to distinguish natural end vs cancel.
+            // However, our `relocated` logic handles the "new page start" logic.
+            // So here we only trigger "next page" if we haven't been cancelled by a page turn.
+            
+            // To keep it simple: We just trigger next page. 
+            // If this was cancelled by 'relocated', the new utterance is already queued or about to be.
+            // But we must ensure we don't double-skip.
+            
+            if (ttsAutoReading && !window.speechSynthesis.pending && !window.speechSynthesis.speaking) {
                 // Use the built-in next function
                 finishNext(); 
-                // Wait slightly for page turn before grabbing new text
-                setTimeout(() => {
-                    ttsSpeakCurrentPage();
-                }, 1000); // 1s delay to allow transition
             } else {
                 ttsUpdatePlayIcon();
             }
         };
 
         utter.onerror = (e) => {
+            // If it was cancelled, don't treat as error
+            if (e.error === 'canceled' || e.error === 'interrupted') return;
             console.error("TTS Error", e);
             ttsAutoReading = false;
             ttsUpdatePlayIcon();
