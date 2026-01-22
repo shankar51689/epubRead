@@ -45,6 +45,8 @@
             background: var(--bg-color); font-family: 'Georgia', serif;
             overflow: hidden; user-select: none;
             transition: background 0.3s;
+            /* CRITICAL FIX: Disable native callouts to prevent crashes */
+            -webkit-touch-callout: none !important; 
         }
 
         /* ===== TOOLBAR ===== */
@@ -118,8 +120,11 @@
         .hl-delete { background: #f44336; display: none; }
         .hl-delete:hover { background: #d32f2f; }
 
+        /* CRITICAL FIX: Ensure no native tooltips/magnifiers */
         .selectable-mode, .selectable-mode * {
-            user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default !important;
+            user-select: text !important; 
+            -webkit-user-select: text !important; 
+            -webkit-touch-callout: none !important; /* Disables native menu */
         }
 
         /* ===== SIDEBAR & LAYOUT ===== */
@@ -231,14 +236,18 @@
 </div>
 
 <script>
-    // GLOBAL ERROR BOUNDARY - CRITICAL FOR CRASH PREVENTION
+    // 1. GLOBAL ERROR BOUNDARY to catch crashes
     window.onerror = function(message, source, lineno, colno, error) {
         console.error("Global Error Caught:", message);
-        // Force cleanup if needed to prevent stuck states
-        if (typeof isDragging !== 'undefined') isDragging = false;
-        // Return true to prevent default browser error handling (which might crash WebView)
-        return true;
+        return true; // Prevents crash propagation
     };
+
+    // 2. CRITICAL FIX: PREVENT NATIVE CONTEXT MENU
+    // This stops the OS from trying to open the system copy/paste menu, which causes the crash.
+    window.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+    }, { passive: false });
 
     let book, rendition;
     let isDragging = false;
@@ -313,11 +322,19 @@
                         .hl-yellow { fill: #ffeb3b !important; }
                         .hl-red    { fill: #ff5252 !important; }
                         .hl-green  { fill: #69f0ae !important; }
+                        /* Ensure no callout inside iframe */
+                        html, body { -webkit-touch-callout: none !important; }
                         ::selection { background: rgba(33, 150, 243, 0.3) !important; }
                     `;
                     contents.document.head.appendChild(style);
                     updateContentSelectionMode(contents);
                     
+                    // Also block context menu inside the iframe
+                    contents.document.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        return false;
+                    }, { passive: false });
+
                     if (currentTheme === 'dark') applyDarkThemeForce(contents);
                 });
 
@@ -351,6 +368,7 @@
                         } catch(e) { currentSelection.text = "Highlight"; }
                         showHighlightMenu(cfiRange, contents, isExpanding);
                     } else {
+                        // If not in mode, clear selection to be safe
                         try { contents.window.getSelection().removeAllRanges(); } catch (_) {}
                     }
                 });
@@ -391,7 +409,9 @@
             if (isHighlightMode) {
                 body.classList.add('selectable-mode');
                 [body, html].forEach(el => {
-                    el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; el.style.touchAction = "manipulation"; 
+                    el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; 
+                    el.style.touchAction = "manipulation"; 
+                    el.style.webkitTouchCallout = "none"; // Explicitly disable callout
                 });
             } else {
                 body.classList.remove('selectable-mode');
@@ -898,7 +918,6 @@
             rendition.on("touchstart", e => {
                 try {
                     if (isHighlightMode) return;
-                    // Strict touch check
                     if (!e.changedTouches || e.changedTouches.length === 0) return;
                     
                     startX = e.changedTouches[0].screenX;
@@ -934,7 +953,6 @@
                 } catch(err) { isDragging = false; resetFlip(); console.error("TouchEnd Error", err); }
             });
 
-            // Mouse events (Same safety)
             rendition.on("mousedown", e => {
                 try {
                     if (isHighlightMode) return; 
