@@ -215,8 +215,7 @@
             <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
             <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
             
-            <button onclick="ttsPlayPause()" id="btn-tts-play" title="Auto Read (Play/Pause)"><i class="fas fa-play"></i></button>
-            <button onclick="ttsStop()" id="btn-tts-clear" title="Stop Reading"><i class="fas fa-stop"></i></button>
+            <button onclick="ttsPlayPause()" id="btn-tts-play" title="Read Page"><i class="fas fa-play"></i></button>
         </div>
         
         <div class="search-container" id="search-container">
@@ -302,7 +301,7 @@
     let ttsIndex = 0;
     let ttsCurrentUtterance = null;
     let ttsIsPaused = false;
-    let ttsAutoReading = false; // Flag for continuous reading
+    // Removed auto reading state, sticking to manual play/pause
 
     // Elements
     const peel = document.getElementById('page-peel');
@@ -321,7 +320,6 @@
     // TTS buttons
     const btnTtsSelect = document.getElementById('btn-tts-select');
     const btnTtsPlay = document.getElementById('btn-tts-play');
-    const btnTtsClear = document.getElementById('btn-tts-clear');
 
     const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
@@ -376,17 +374,12 @@
                 }
 
                 // FIXED: TTS Auto Reset on Page Change
-                // If the user navigated (swiped, clicked prev/next), we must interrupt the current speech
-                // and start reading the new page immediately if auto-reading is active.
-                if (ttsAutoReading && !ttsIsPaused) {
-                    // Cancel current speech, which triggers onend, 
-                    // but we want to manually restart to avoid race conditions.
+                // If the user navigates (swipes/next), stop speaking immediately.
+                // The next time they hit "Play", it will read the NEW page.
+                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
                     window.speechSynthesis.cancel();
-                    
-                    // Small timeout to let the renderer settle
-                    setTimeout(() => {
-                        if (ttsAutoReading) ttsSpeakCurrentPage();
-                    }, 200);
+                    ttsIsPaused = false;
+                    ttsUpdatePlayIcon(); // Will show 'Play' icon
                 }
             });
 
@@ -610,14 +603,17 @@
         if (!btnTtsPlay) return;
         const icon = btnTtsPlay.querySelector('i');
         const synth = window.speechSynthesis;
-        if (synth && (synth.speaking || ttsAutoReading) && !synth.paused) {
+        
+        // If speaking and not paused, show Pause icon
+        if (synth && synth.speaking && !synth.paused) {
             icon.className = 'fas fa-pause';
         } else {
+            // If paused or stopped, show Play icon
             icon.className = 'fas fa-play';
         }
     }
 
-    // FIXED: Main TTS Toggle Function
+    // FIXED: Main TTS Toggle Function (Single Button Logic)
     function ttsPlayPause() {
         if (!window.speechSynthesis) {
             showNotification('TTS not supported');
@@ -626,29 +622,26 @@
 
         const synth = window.speechSynthesis;
 
-        // Case 1: Currently Speaking -> Pause
-        if (synth.speaking && !synth.paused) {
-            synth.pause();
-            ttsIsPaused = true;
-            ttsUpdatePlayIcon();
-            return;
+        if (synth.speaking) {
+            // If currently speaking, toggle pause/resume
+            if (synth.paused) {
+                synth.resume();
+                showNotification("Resuming...");
+            } else {
+                synth.pause();
+                showNotification("Paused");
+            }
+        } else {
+            // If not speaking, start fresh with current page content
+            speakCurrentPage();
         }
-
-        // Case 2: Paused -> Resume
-        if (synth.paused) {
-            synth.resume();
-            ttsIsPaused = false;
-            ttsUpdatePlayIcon();
-            return;
-        }
-
-        // Case 3: Not speaking -> Start Auto Read from current page
-        ttsAutoReading = true;
-        ttsSpeakCurrentPage();
+        
+        ttsUpdatePlayIcon();
     }
 
-    function ttsSpeakCurrentPage() {
-        if (!ttsAutoReading) return;
+    function speakCurrentPage() {
+        const synth = window.speechSynthesis;
+        synth.cancel(); // Clear any pending
 
         // Get text from the currently rendered chapter/section
         const contents = rendition.getContents();
@@ -660,66 +653,32 @@
         }
 
         if (!text || text.trim().length === 0) {
-            // If empty (e.g., image only), try next page
-            finishNext(); 
-            // Only retry if we haven't manually stopped
-            setTimeout(() => {
-                if(ttsAutoReading) ttsSpeakCurrentPage();
-            }, 500); 
+            showNotification("No text on this page");
             return;
         }
 
         // Sanitize text
         text = text.replace(/\s+/g, ' ').trim();
         
-        // Create Utterance
         const utter = new SpeechSynthesisUtterance(text);
         
         utter.onstart = () => {
-            showNotification("Reading...");
+            showNotification("Reading Page...");
             ttsUpdatePlayIcon();
         };
 
         utter.onend = () => {
-            // This event fires when speaking finishes naturally OR when cancelled.
-            // We only want to proceed to NEXT page if it finished naturally.
-            // If it was cancelled (due to page turn), we do nothing here,
-            // because the 'relocated' event will restart reading the NEW page.
-            
-            // NOTE: SpeechSynthesis doesn't give a clean property to distinguish natural end vs cancel.
-            // However, our `relocated` logic handles the "new page start" logic.
-            // So here we only trigger "next page" if we haven't been cancelled by a page turn.
-            
-            // To keep it simple: We just trigger next page. 
-            // If this was cancelled by 'relocated', the new utterance is already queued or about to be.
-            // But we must ensure we don't double-skip.
-            
-            if (ttsAutoReading && !window.speechSynthesis.pending && !window.speechSynthesis.speaking) {
-                // Use the built-in next function
-                finishNext(); 
-            } else {
-                ttsUpdatePlayIcon();
-            }
+            ttsUpdatePlayIcon(); // Reset to Play icon when done
         };
 
         utter.onerror = (e) => {
-            // If it was cancelled, don't treat as error
-            if (e.error === 'canceled' || e.error === 'interrupted') return;
-            console.error("TTS Error", e);
-            ttsAutoReading = false;
+            if (e.error !== 'canceled' && e.error !== 'interrupted') {
+                console.error("TTS Error", e);
+            }
             ttsUpdatePlayIcon();
         };
 
-        window.speechSynthesis.cancel(); // Stop anything else
-        window.speechSynthesis.speak(utter);
-    }
-
-    function ttsStop() {
-        ttsAutoReading = false;
-        if (window.speechSynthesis) window.speechSynthesis.cancel();
-        ttsIsPaused = false;
-        ttsUpdatePlayIcon();
-        showNotification("Reading Stopped");
+        synth.speak(utter);
     }
 
     // Helper (kept for compatibility)
