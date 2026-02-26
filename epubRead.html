@@ -695,6 +695,11 @@
                     contents.document.head.appendChild(style);
                     updateContentSelectionMode(contents);
 
+                    // Prevent native context menu (Copy/Cut/Paste) to let our custom highlight menu take over cleanly
+                    contents.document.addEventListener('contextmenu', e => {
+                        if (isHighlightMode) e.preventDefault();
+                    });
+
                     // Re-apply theme if content loads after theme switch
                     if (currentTheme === 'dark') applyDarkThemeForce(contents);
                 });
@@ -785,12 +790,12 @@
             if (isHighlightMode) {
                 body.classList.add('selectable-mode');
                 [body, html].forEach(el => {
-                    el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; el.style.touchAction = "manipulation";
+                    el.style.userSelect = "text"; el.style.webkitUserSelect = "text"; el.style.cursor = "text"; el.style.touchAction = "manipulation"; el.style.webkitTouchCallout = "none";
                 });
             } else {
                 body.classList.remove('selectable-mode');
                 [body, html].forEach(el => {
-                    el.style.userSelect = "none"; el.style.webkitUserSelect = "none"; el.style.cursor = "default"; el.style.touchAction = "auto";
+                    el.style.userSelect = "none"; el.style.webkitUserSelect = "none"; el.style.cursor = "default"; el.style.touchAction = "auto"; el.style.webkitTouchCallout = "default";
                 });
             }
         }
@@ -810,9 +815,9 @@
                 const range = contents.range(cfiRange);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewer.getBoundingClientRect();
-                topPos = rect.top + viewerRect.top - 60;
+                topPos = rect.top + viewerRect.top - 100; // Increased offset to safely not hide the text
                 leftPos = rect.left + viewerRect.left + (rect.width / 2);
-                if (topPos < 50) topPos = rect.bottom + viewerRect.top + 10;
+                if (topPos < 50) topPos = rect.bottom + viewerRect.top + 30; // Push below text if clipping top side
                 const menuWidth = 200;
                 if (leftPos - (menuWidth / 2) < 10) leftPos = (menuWidth / 2) + 10;
                 if (leftPos + (menuWidth / 2) > window.innerWidth) leftPos = window.innerWidth - (menuWidth / 2) - 10;
@@ -829,8 +834,8 @@
                 const r = rect || { top: 80, left: (viewerRect.width / 2), width: 0 };
                 currentSelection.isEditing = true; currentSelection.existingCfi = cfi; noteInput.value = data.note || "";
                 selectColor(data.color || 'yellow'); btnRemoveHl.style.display = "block";
-                let topPos = r.top + viewerRect.top - 60;
-                if (topPos < 50) topPos = r.bottom + viewerRect.top + 10;
+                let topPos = r.top + viewerRect.top - 100;
+                if (topPos < 50) topPos = r.bottom + viewerRect.top + 30;
                 let leftPos = r.left + viewerRect.left + (r.width / 2);
                 highlightMenu.style.transform = "translateX(-50%)";
                 highlightMenu.style.top = topPos + "px"; highlightMenu.style.left = leftPos + "px"; highlightMenu.style.display = "flex";
