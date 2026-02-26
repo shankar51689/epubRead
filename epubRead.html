@@ -831,12 +831,19 @@
                 if (topPos < 160) {
                     topPos = rect.bottom + viewerRect.top; // Push below text
                     isFlipped = true;
+
+                    // If placing below ALSO goes off screen (huge selection), clump to center of viewport
+                    if (topPos > window.innerHeight - 170) {
+                        topPos = window.innerHeight / 2 + 80;
+                        leftPos = window.innerWidth / 2;
+                        isFlipped = false;
+                    }
                 }
 
                 const menuWidth = 200;
                 if (leftPos - (menuWidth / 2) < 10) leftPos = (menuWidth / 2) + 10;
                 if (leftPos + (menuWidth / 2) > window.innerWidth) leftPos = window.innerWidth - (menuWidth / 2) - 10;
-            } catch (e) { topPos = window.innerHeight / 2; leftPos = window.innerWidth / 2; }
+            } catch (e) { topPos = window.innerHeight / 2 + 80; leftPos = window.innerWidth / 2; isFlipped = false; }
 
             if (isFlipped) {
                 highlightMenu.classList.add('flipped');
@@ -864,6 +871,12 @@
                 if (topPos < 160) {
                     topPos = r.bottom + viewerRect.top;
                     isFlipped = true;
+
+                    if (topPos > window.innerHeight - 170) {
+                        topPos = window.innerHeight / 2 + 80;
+                        leftPos = window.innerWidth / 2;
+                        isFlipped = false;
+                    }
                 }
 
                 if (isFlipped) {
