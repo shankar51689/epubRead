@@ -168,6 +168,12 @@
             border-color: #222 transparent transparent transparent;
         }
 
+        #highlight-menu.flipped::after {
+            top: auto;
+            bottom: 100%;
+            border-color: transparent transparent #222 transparent;
+        }
+
         .hl-colors {
             display: flex;
             gap: 12px;
@@ -811,18 +817,34 @@
                 btnRemoveHl.style.display = "none"; noteInput.value = ""; selectColor(selectedColor || 'yellow');
             }
             let topPos = 0; let leftPos = 0;
+            let isFlipped = false;
             try {
                 const range = contents.range(cfiRange);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewer.getBoundingClientRect();
-                topPos = rect.top + viewerRect.top - 100; // Increased offset to safely not hide the text
+
+                // Target exactly the top edge of the selection rect
+                topPos = rect.top + viewerRect.top;
                 leftPos = rect.left + viewerRect.left + (rect.width / 2);
-                if (topPos < 50) topPos = rect.bottom + viewerRect.top + 30; // Push below text if clipping top side
+
+                // If there's not enough room above the text (need approx 160px for menu)
+                if (topPos < 160) {
+                    topPos = rect.bottom + viewerRect.top; // Push below text
+                    isFlipped = true;
+                }
+
                 const menuWidth = 200;
                 if (leftPos - (menuWidth / 2) < 10) leftPos = (menuWidth / 2) + 10;
                 if (leftPos + (menuWidth / 2) > window.innerWidth) leftPos = window.innerWidth - (menuWidth / 2) - 10;
             } catch (e) { topPos = window.innerHeight / 2; leftPos = window.innerWidth / 2; }
-            highlightMenu.style.transform = "translateX(-50%)";
+
+            if (isFlipped) {
+                highlightMenu.classList.add('flipped');
+                highlightMenu.style.transform = "translate(-50%, 15px)";
+            } else {
+                highlightMenu.classList.remove('flipped');
+                highlightMenu.style.transform = "translate(-50%, calc(-100% - 15px))"; // Shift entirely above target!
+            }
             highlightMenu.style.top = topPos + "px"; highlightMenu.style.left = leftPos + "px"; highlightMenu.style.display = "flex";
         }
 
@@ -831,13 +853,27 @@
             const data = highlights.find(h => h.cfi === cfi);
             if (data) {
                 const viewerRect = viewer.getBoundingClientRect();
-                const r = rect || { top: 80, left: (viewerRect.width / 2), width: 0 };
+                const r = rect || { top: 80, bottom: 100, left: (viewerRect.width / 2), width: 0 };
                 currentSelection.isEditing = true; currentSelection.existingCfi = cfi; noteInput.value = data.note || "";
                 selectColor(data.color || 'yellow'); btnRemoveHl.style.display = "block";
-                let topPos = r.top + viewerRect.top - 100;
-                if (topPos < 50) topPos = r.bottom + viewerRect.top + 30;
+
+                let isFlipped = false;
+                let topPos = r.top + viewerRect.top;
                 let leftPos = r.left + viewerRect.left + (r.width / 2);
-                highlightMenu.style.transform = "translateX(-50%)";
+
+                if (topPos < 160) {
+                    topPos = r.bottom + viewerRect.top;
+                    isFlipped = true;
+                }
+
+                if (isFlipped) {
+                    highlightMenu.classList.add('flipped');
+                    highlightMenu.style.transform = "translate(-50%, 15px)";
+                } else {
+                    highlightMenu.classList.remove('flipped');
+                    highlightMenu.style.transform = "translate(-50%, calc(-100% - 15px))";
+                }
+
                 highlightMenu.style.top = topPos + "px"; highlightMenu.style.left = leftPos + "px"; highlightMenu.style.display = "flex";
             }
         }
