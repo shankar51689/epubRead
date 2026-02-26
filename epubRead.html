@@ -525,6 +525,22 @@
             pointer-events: none;
             z-index: 3000;
         }
+
+        #page-counter {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.4);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-family: sans-serif;
+            pointer-events: none;
+            z-index: 25;
+            opacity: 0.7;
+        }
     </style>
 </head>
 
@@ -596,6 +612,7 @@
         <div id="page-peel">
             <div id="peel-gradient"></div>
         </div>
+        <div id="page-counter">...</div>
     </div>
 
     <script>
@@ -699,6 +716,19 @@
                         const icon = btnTtsPlay.querySelector('i');
                         if (icon) icon.className = 'fas fa-play';
                     }
+
+                    // Update Page Counter
+                    try {
+                        let pct = Math.round(location.start.percentage * 100);
+                        if (isNaN(pct)) pct = 0;
+                        const pageCounter = document.getElementById('page-counter');
+                        if (book.locations && book.locations.total > 0) {
+                            const pageNum = book.locations.locationFromCfi(location.start.cfi);
+                            pageCounter.innerText = `${pageNum} / ${book.locations.total}`;
+                        } else {
+                            pageCounter.innerText = `${pct}%`;
+                        }
+                    } catch (e) { console.warn("Page count error", e); }
                 });
 
                 rendition.on('selected', (cfiRange, contents) => {
@@ -719,7 +749,15 @@
 
                 rendition.on('click', () => { hideHighlightMenu(); });
 
-                book.ready.then(() => { book.locations.generate(1000); });
+                book.ready.then(() => {
+                    book.locations.generate(1000).then(() => {
+                        const loc = rendition.currentLocation();
+                        if (loc && loc.start) {
+                            const pageNum = book.locations.locationFromCfi(loc.start.cfi);
+                            document.getElementById('page-counter').innerText = `${pageNum} / ${book.locations.total}`;
+                        }
+                    });
+                });
             })
         }
 
