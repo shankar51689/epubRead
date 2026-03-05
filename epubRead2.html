@@ -678,7 +678,8 @@
                 height: "100%",
                 flow: "paginated",
                 spread: isPortrait ? "none" : "auto",
-                minSpreadWidth: 815
+                minSpreadWidth: 815,
+                gap: 0
             });
 
             window.addEventListener('resize', () => {
@@ -706,47 +707,18 @@
                 });
 
                 rendition.hooks.content.register(function (contents) {
-                    let doc = contents.document;
-
-                    // Check if this chapter is completely text-free (pure image chapter)
-                    let text = doc.body.textContent || doc.body.innerText || "";
-                    text = text.replace(/\s+/g, '').trim();
-
-                    let style = doc.createElement('style');
-
-                    if (text === '') {
-                        // Pure image chapter: reduce column gap
-                        style.innerHTML = `
-                            html, body { 
-                                margin: 0 !important; 
-                                padding: 0 !important; 
-                            }
-                            html {
-                                column-gap: 0px !important;
-                            }
-                            img, svg, picture { 
-                                max-width: 100vw !important;
-                                height: auto !important;
-                                margin: 0 auto !important; 
-                                display: block !important; 
-                            }
-                            .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
-                            .hl-yellow { fill: #ffeb3b !important; }
-                            .hl-red    { fill: #ff5252 !important; }
-                            .hl-green  { fill: #69f0ae !important; }
-                            ::selection { background: rgba(33, 150, 243, 0.3) !important; }
-                        `;
-                    } else {
-                        // Standard chapter (leave layout entirely alone)
-                        style.innerHTML = `
-                            .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
-                            .hl-yellow { fill: #ffeb3b !important; }
-                            .hl-red    { fill: #ff5252 !important; }
-                            .hl-green  { fill: #69f0ae !important; }
-                            ::selection { background: rgba(33, 150, 243, 0.3) !important; }
-                        `;
-                    }
-                    doc.head.appendChild(style);
+                    let style = contents.document.createElement('style');
+                    style.innerHTML = `
+                    .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
+                    .hl-yellow { fill: #ffeb3b !important; }
+                    .hl-red    { fill: #ff5252 !important; }
+                    .hl-green  { fill: #69f0ae !important; }
+                    ::selection { background: rgba(33, 150, 243, 0.3) !important; }
+                    body, html { padding: 0 !important; margin: 0 !important; }
+                    body { box-sizing: border-box !important; }
+                    img, svg { margin: 0 !important; padding: 0 !important; max-width: 100% !important; }
+                `;
+                    contents.document.head.appendChild(style);
                     updateContentSelectionMode(contents);
 
                     // Prevent native context menu (Copy/Cut/Paste) to let our custom highlight menu take over cleanly
