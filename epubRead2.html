@@ -715,19 +715,20 @@
                     let style = doc.createElement('style');
 
                     if (text === '') {
-                        // Pure image chapter: wipe out all margins and paddings to reduce gap naturally
-                        // We DO NOT force width/height or use object-fit: cover, which distorts/crops images.
+                        // Pure image chapter: reduce column gap
                         style.innerHTML = `
-                            html, body, div, figure, p { 
-                                padding: 0 !important; 
+                            html, body { 
                                 margin: 0 !important; 
+                                padding: 0 !important; 
+                            }
+                            html {
+                                column-gap: 0px !important;
                             }
                             img, svg, picture { 
-                                max-width: 100% !important; 
-                                max-height: 100vh !important; 
+                                max-width: 100vw !important;
+                                height: auto !important;
                                 margin: 0 auto !important; 
                                 display: block !important; 
-                                object-fit: contain !important;
                             }
                             .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
                             .hl-yellow { fill: #ffeb3b !important; }
