@@ -707,25 +707,27 @@
 
                 rendition.hooks.content.register(function (contents) {
                     let doc = contents.document;
+
+                    // Check if this chapter is completely text-free (pure image chapter)
+                    let text = doc.body.textContent || doc.body.innerText || "";
+                    text = text.replace(/\s+/g, '').trim();
+
                     let style = doc.createElement('style');
 
-                    // Check if it's a picture-heavy layout
-                    let text = doc.body.textContent || doc.body.innerText || "";
-                    let hasMedia = doc.querySelectorAll('img, svg, image').length > 0;
-                    let isPicturePage = (text.replace(/\s+/g, '').length < 1500 && hasMedia) || doc.querySelector('meta[name="viewport"]');
-
-                    if (isPicturePage) {
+                    if (text === '') {
+                        // Pure image chapter: wipe out all margins and paddings to reduce gap naturally
+                        // We DO NOT force width/height or use object-fit: cover, which distorts/crops images.
                         style.innerHTML = `
-                            html { column-gap: 0px !important; }
-                            body { padding: 0 !important; margin: 0 !important; }
-                            .page, body > div { padding: 0 !important; margin: 0 !important; }
-                            img, svg { 
-                                width: 100% !important; 
-                                height: 100vh !important; 
-                                object-fit: cover !important; 
+                            html, body, div, figure, p { 
+                                padding: 0 !important; 
                                 margin: 0 !important; 
-                                padding: 0 !important;
+                            }
+                            img, svg, picture { 
+                                max-width: 100% !important; 
+                                max-height: 100vh !important; 
+                                margin: 0 auto !important; 
                                 display: block !important; 
+                                object-fit: contain !important;
                             }
                             .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
                             .hl-yellow { fill: #ffeb3b !important; }
@@ -734,6 +736,7 @@
                             ::selection { background: rgba(33, 150, 243, 0.3) !important; }
                         `;
                     } else {
+                        // Standard chapter (leave layout entirely alone)
                         style.innerHTML = `
                             .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
                             .hl-yellow { fill: #ffeb3b !important; }
