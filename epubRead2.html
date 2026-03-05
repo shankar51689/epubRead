@@ -739,6 +739,55 @@
                     ::selection { background: rgba(33, 150, 243, 0.3) !important; }
                 `;
                     contents.document.head.appendChild(style);
+
+                    // ── Gap fix: override epub.js body padding that creates the center gap ──
+                    // epub.js injects padding-left/padding-right = gap/2 on body for each page.
+                    // In landscape spread mode on an image-heavy book, this creates a large
+                    // visible white gap in the middle. We patch it after epub.js sets it.
+                    setTimeout(() => {
+                        try {
+                            const isLandscape = window.innerWidth > window.innerHeight;
+                            if (!isLandscape) return;
+
+                            const innerDoc = contents.document;
+                            const body = innerDoc && innerDoc.body;
+                            if (!body) return;
+
+                            // Check if this page is purely image-based (picture book)
+                            const bodyText = (body.innerText || '').trim();
+                            const images = body.querySelectorAll('img, svg, image');
+                            const isImagePage = images.length > 0 && bodyText.length < 50;
+
+                            if (isImagePage) {
+                                // Kill all padding so image fills to the edge
+                                const overrideStyle = innerDoc.createElement('style');
+                                overrideStyle.id = 'gap-fix-style';
+                                overrideStyle.innerHTML = `
+                                    html, body {
+                                        padding: 0 !important;
+                                        margin: 0 !important;
+                                        overflow: hidden !important;
+                                        box-sizing: border-box !important;
+                                    }
+                                    img, svg {
+                                        width: 100% !important;
+                                        height: 100% !important;
+                                        max-width: 100% !important;
+                                        max-height: 100% !important;
+                                        object-fit: cover !important;
+                                        display: block !important;
+                                        margin: 0 !important;
+                                        padding: 0 !important;
+                                    }
+                                `;
+                                // Remove any previously injected gap fix
+                                const existing = innerDoc.getElementById('gap-fix-style');
+                                if (existing) existing.remove();
+                                innerDoc.head.appendChild(overrideStyle);
+                            }
+                        } catch (e) { console.warn('gap-fix error:', e); }
+                    }, 200);
+
                     updateContentSelectionMode(contents);
 
                     // Prevent native context menu (Copy/Cut/Paste) to let our custom highlight menu take over cleanly
@@ -817,31 +866,25 @@
             })
         }
 
-        /* --- SPREAD GAP REMOVAL --- */
+        /* --- SPREAD GAP REMOVAL (outer DOM fix) --- */
         function removeSpreadGap() {
             try {
                 const isLandscape = window.innerWidth > window.innerHeight;
-                if (!isLandscape) return; // Only matters in landscape spread mode
+                if (!isLandscape) return;
 
                 const viewerEl = document.getElementById('viewer');
                 if (!viewerEl) return;
 
-                // Target epub.js inner container — it uses class names like 'epub-container' or direct child divs
-                const container = viewerEl.querySelector('.epub-container')
-                    || viewerEl.querySelector('.epubjs-container')
-                    || viewerEl.firstElementChild;
+                // epub.js creates: #viewer > .epub-container (flex row) > .epub-view (each page)
+                const container = viewerEl.querySelector('.epub-container');
                 if (!container) return;
 
-                // Remove any column-gap or padding epub.js sets inline
-                container.style.columnGap = '0';
-                container.style.padding = '0';
-                container.style.margin = '0';
-                container.style.gap = '0';
+                // Ensure container spans full viewer
+                container.style.width = viewerEl.offsetWidth + 'px';
+                container.style.height = viewerEl.offsetHeight + 'px';
 
-                // Each page view (iframe wrapper)
-                const views = container.querySelectorAll('.epub-view, .epubjs-view');
+                const views = container.querySelectorAll('.epub-view');
                 if (views.length === 2) {
-                    // Two-page spread: place them flush side by side filling viewer width exactly
                     const totalW = viewerEl.offsetWidth;
                     const totalH = viewerEl.offsetHeight;
                     const halfW = Math.floor(totalW / 2);
@@ -849,13 +892,10 @@
                     views.forEach((view, i) => {
                         view.style.margin = '0';
                         view.style.padding = '0';
-                        view.style.border = 'none';
-                        view.style.position = 'absolute';
-                        view.style.top = '0';
-                        view.style.left = (i === 0 ? 0 : halfW) + 'px';
                         view.style.width = halfW + 'px';
                         view.style.height = totalH + 'px';
                         view.style.overflow = 'hidden';
+                        view.style.flex = 'none';
 
                         const iframe = view.querySelector('iframe');
                         if (iframe) {
@@ -866,13 +906,6 @@
                             iframe.style.width = halfW + 'px';
                             iframe.style.height = totalH + 'px';
                         }
-                    });
-                } else {
-                    // Single page: reset any leftover styles
-                    views.forEach(view => {
-                        view.style.margin = '0';
-                        view.style.padding = '0';
-                        view.style.border = 'none';
                     });
                 }
             } catch (e) {
