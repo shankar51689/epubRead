@@ -709,7 +709,7 @@
                     rendition.spread(portrait ? "none" : "auto");
                 }
                 // Re-apply gap fix after orientation change
-                setTimeout(removeSpreadGap, 300);
+                setTimeout(startSpreadGapObserver, 300);
             });
 
             let savedLocation = null;
@@ -812,9 +812,9 @@
                     if (currentTheme === 'dark') applyDarkThemeForce(contents);
                 });
 
-                // ── Gap-killer: remove epub.js spread gap after every render ──
+                // ── Gap-killer: install a persistent MutationObserver on rendered ──
                 rendition.on('rendered', () => {
-                    removeSpreadGap();
+                    startSpreadGapObserver();
                 });
 
                 rendition.on('relocated', (location) => {
@@ -879,52 +879,111 @@
             })
         }
 
-        /* --- SPREAD GAP REMOVAL (outer DOM fix) --- */
-        function removeSpreadGap() {
+        /* --- SPREAD GAP REMOVAL (outer DOM fix via MutationObserver) --- */
+        let _spreadGapObserver = null;
+        let _applyingLayout = false;
+
+        function applySpreadLayout() {
+            if (_applyingLayout) return; // prevent re-entrancy
+            _applyingLayout = true;
             try {
                 const isLandscape = window.innerWidth > window.innerHeight;
-                if (!isLandscape) return;
-
                 const viewerEl = document.getElementById('viewer');
                 if (!viewerEl) return;
 
-                // epub.js creates: #viewer > .epub-container (flex row) > .epub-view (each page)
                 const container = viewerEl.querySelector('.epub-container');
                 if (!container) return;
 
-                // Ensure container spans full viewer
-                container.style.width = viewerEl.offsetWidth + 'px';
-                container.style.height = viewerEl.offsetHeight + 'px';
+                const views = Array.from(container.querySelectorAll('.epub-view'));
+                if (views.length !== 2 || !isLandscape) return;
 
-                const views = container.querySelectorAll('.epub-view');
-                if (views.length === 2) {
-                    const totalW = viewerEl.offsetWidth;
-                    const totalH = viewerEl.offsetHeight;
-                    const halfW = Math.floor(totalW / 2);
+                const totalW = viewerEl.offsetWidth;
+                const totalH = viewerEl.offsetHeight;
+                const halfW = Math.floor(totalW / 2);
+                const rightW = totalW - halfW; // handle odd-pixel screens
 
-                    views.forEach((view, i) => {
-                        view.style.margin = '0';
-                        view.style.padding = '0';
-                        view.style.width = halfW + 'px';
-                        view.style.height = totalH + 'px';
-                        view.style.overflow = 'hidden';
-                        view.style.flex = 'none';
+                // Force container to fill viewer absolutely
+                container.style.position = 'absolute';
+                container.style.top = '0';
+                container.style.left = '0';
+                container.style.width = totalW + 'px';
+                container.style.height = totalH + 'px';
+                container.style.display = 'flex';
+                container.style.flexDirection = 'row';
+                container.style.flexWrap = 'nowrap';
 
-                        const iframe = view.querySelector('iframe');
-                        if (iframe) {
-                            iframe.style.margin = '0';
-                            iframe.style.padding = '0';
-                            iframe.style.border = 'none';
-                            iframe.style.display = 'block';
-                            iframe.style.width = halfW + 'px';
-                            iframe.style.height = totalH + 'px';
-                        }
-                    });
-                }
+                // Left page
+                _sizeView(views[0], halfW, totalH);
+                // Right page
+                _sizeView(views[1], rightW, totalH);
             } catch (e) {
-                console.warn('removeSpreadGap error:', e);
+                console.warn('applySpreadLayout error:', e);
+            } finally {
+                _applyingLayout = false;
             }
         }
+
+        function _sizeView(view, w, h) {
+            view.style.cssText = [
+                'margin:0',
+                'padding:0',
+                'border:none',
+                'overflow:hidden',
+                'flex:none',
+                'width:' + w + 'px',
+                'height:' + h + 'px',
+                'position:relative',
+                'display:block'
+            ].join(';');
+            const iframe = view.querySelector('iframe');
+            if (iframe) {
+                iframe.style.cssText = [
+                    'margin:0',
+                    'padding:0',
+                    'border:none',
+                    'display:block',
+                    'width:' + w + 'px',
+                    'height:' + h + 'px'
+                ].join(';');
+            }
+        }
+
+        function startSpreadGapObserver() {
+            // Disconnect previous observer if exists
+            if (_spreadGapObserver) {
+                _spreadGapObserver.disconnect();
+                _spreadGapObserver = null;
+            }
+
+            // Run immediately
+            applySpreadLayout();
+
+            const viewerEl = document.getElementById('viewer');
+            if (!viewerEl) return;
+
+            // Watch for ANY DOM mutation inside #viewer and re-apply the layout.
+            // This catches epub.js re-sizing iframes after we set them.
+            _spreadGapObserver = new MutationObserver(() => {
+                applySpreadLayout();
+            });
+            _spreadGapObserver.observe(viewerEl, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'width', 'height']
+            });
+
+            // Stop watching after 2 seconds — epub.js is settled by then
+            setTimeout(() => {
+                if (_spreadGapObserver) {
+                    _spreadGapObserver.disconnect();
+                    _spreadGapObserver = null;
+                }
+            }, 2000);
+        }
+
+        // Keep backward compat alias
+        function removeSpreadGap() { startSpreadGapObserver(); }
 
         /* --- HIGHLIGHT LOGIC --- */
 
