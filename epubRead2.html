@@ -707,19 +707,14 @@
 
                 rendition.hooks.content.register(function (contents) {
                     let doc = contents.document;
-
-                    // Check if this chapter is highly visual / picture book
-                    let text = doc.body.textContent || doc.body.innerText || "";
-                    text = text.replace(/\s+/g, '').trim();
-                    let hasMedia = doc.querySelectorAll('img, svg, image').length > 0;
-
-                    // Treat as picture page if very little text with media, or fixed layout viewport exists
-                    let isPicturePage = (text.length < 2000 && hasMedia) || doc.querySelector('meta[name="viewport"]');
-
                     let style = doc.createElement('style');
 
+                    // Check if it's a picture-heavy layout
+                    let text = doc.body.textContent || doc.body.innerText || "";
+                    let hasMedia = doc.querySelectorAll('img, svg, image').length > 0;
+                    let isPicturePage = (text.replace(/\s+/g, '').length < 1500 && hasMedia) || doc.querySelector('meta[name="viewport"]');
+
                     if (isPicturePage) {
-                        // Picture page: stretch images to full height/width to merge landscape spreads seamlessly
                         style.innerHTML = `
                             html { column-gap: 0px !important; }
                             body { padding: 0 !important; margin: 0 !important; }
@@ -727,11 +722,9 @@
                             img, svg { 
                                 width: 100% !important; 
                                 height: 100vh !important; 
-                                max-width: 100% !important; 
-                                max-height: 100vh !important; 
+                                object-fit: cover !important; 
                                 margin: 0 !important; 
                                 padding: 0 !important;
-                                object-fit: fill !important;
                                 display: block !important; 
                             }
                             .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
@@ -741,7 +734,6 @@
                             ::selection { background: rgba(33, 150, 243, 0.3) !important; }
                         `;
                     } else {
-                        // Regular text chapter
                         style.innerHTML = `
                             .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
                             .hl-yellow { fill: #ffeb3b !important; }
