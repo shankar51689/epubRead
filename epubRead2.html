@@ -708,22 +708,30 @@
                 rendition.hooks.content.register(function (contents) {
                     let doc = contents.document;
 
-                    // Check if this chapter is text-free (i.e. purely images)
+                    // Check if this chapter is highly visual / picture book
                     let text = doc.body.textContent || doc.body.innerText || "";
                     text = text.replace(/\s+/g, '').trim();
+                    let hasMedia = doc.querySelectorAll('img, svg, image').length > 0;
+
+                    // Treat as picture page if very little text with media, or fixed layout viewport exists
+                    let isPicturePage = (text.length < 2000 && hasMedia) || doc.querySelector('meta[name="viewport"]');
 
                     let style = doc.createElement('style');
 
-                    if (text === '') {
-                        // Image-only chapter: Remove column gap and margin so landscape spreads touch perfectly
+                    if (isPicturePage) {
+                        // Picture page: stretch images to full height/width to merge landscape spreads seamlessly
                         style.innerHTML = `
                             html { column-gap: 0px !important; }
                             body { padding: 0 !important; margin: 0 !important; }
-                            img { 
+                            .page, body > div { padding: 0 !important; margin: 0 !important; }
+                            img, svg { 
+                                width: 100% !important; 
+                                height: 100vh !important; 
                                 max-width: 100% !important; 
                                 max-height: 100vh !important; 
-                                margin: 0 auto !important; 
-                                object-fit: contain !important;
+                                margin: 0 !important; 
+                                padding: 0 !important;
+                                object-fit: fill !important;
                                 display: block !important; 
                             }
                             .epubjs-hl, .epubjs-hl rect { pointer-events: all !important; cursor: pointer; }
