@@ -670,7 +670,23 @@
 
         function initReader(url) {
             book = ePub(url);
-            rendition = book.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
+
+            // Fix: Show single column in portrait mode (mobile/tab)
+            const isPortrait = window.innerHeight > window.innerWidth;
+            rendition = book.renderTo("viewer", {
+                width: "100%",
+                height: "100%",
+                flow: "paginated",
+                spread: isPortrait ? "none" : "auto",
+                minSpreadWidth: 815
+            });
+
+            window.addEventListener('resize', () => {
+                const portrait = window.innerHeight > window.innerWidth;
+                if (rendition && typeof rendition.spread === 'function') {
+                    rendition.spread(portrait ? "none" : "auto");
+                }
+            });
 
             let savedLocation = null;
             try { savedLocation = localStorage.getItem(`book-location_${bookId}`); } catch (e) { }
