@@ -741,52 +741,65 @@
                     contents.document.head.appendChild(style);
 
                     // ── Gap fix: override epub.js body padding that creates the center gap ──
-                    // epub.js injects padding-left/padding-right = gap/2 on body for each page.
-                    // In landscape spread mode on an image-heavy book, this creates a large
-                    // visible white gap in the middle. We patch it after epub.js sets it.
-                    setTimeout(() => {
+                    // CRITICAL: epub.js calls body.style.setProperty('padding-left/right', X, 'important')
+                    // Inline !important BEATS stylesheet !important — only another setProperty
+                    // with 'important' can override it. We poll + observe to catch when epub.js
+                    // applies it and immediately reset to 0.
+                    (function applyGapFix() {
                         try {
-                            const isLandscape = window.innerWidth > window.innerHeight;
-                            if (!isLandscape) return;
-
                             const innerDoc = contents.document;
                             const body = innerDoc && innerDoc.body;
                             if (!body) return;
 
-                            // Check if this page is purely image-based (picture book)
-                            const bodyText = (body.innerText || '').trim();
-                            const images = body.querySelectorAll('img, svg, image');
-                            const isImagePage = images.length > 0 && bodyText.length < 50;
+                            function forceZeroPadding() {
+                                try {
+                                    const isLandscape = window.innerWidth > window.innerHeight;
+                                    if (!isLandscape) return;
 
-                            if (isImagePage) {
-                                // Kill all padding so image fills to the edge
-                                const overrideStyle = innerDoc.createElement('style');
-                                overrideStyle.id = 'gap-fix-style';
-                                overrideStyle.innerHTML = `
-                                    html, body {
-                                        padding: 0 !important;
-                                        margin: 0 !important;
-                                        overflow: hidden !important;
-                                        box-sizing: border-box !important;
-                                    }
-                                    img, svg {
-                                        width: 100% !important;
-                                        height: 100% !important;
-                                        max-width: 100% !important;
-                                        max-height: 100% !important;
-                                        object-fit: cover !important;
-                                        display: block !important;
-                                        margin: 0 !important;
-                                        padding: 0 !important;
-                                    }
-                                `;
-                                // Remove any previously injected gap fix
-                                const existing = innerDoc.getElementById('gap-fix-style');
-                                if (existing) existing.remove();
-                                innerDoc.head.appendChild(overrideStyle);
+                                    // Directly override with inline !important — the only way to
+                                    // beat epub.js's own inline !important setProperty calls
+                                    body.style.setProperty('padding-left', '0px', 'important');
+                                    body.style.setProperty('padding-right', '0px', 'important');
+                                    body.style.setProperty('padding-top', '0px', 'important');
+                                    body.style.setProperty('padding-bottom', '0px', 'important');
+                                    body.style.setProperty('margin', '0px', 'important');
+                                    body.style.setProperty('overflow', 'hidden', 'important');
+
+                                    // Stretch images to fill the half-page exactly
+                                    const images = body.querySelectorAll('img, svg, image');
+                                    images.forEach(img => {
+                                        img.style.setProperty('width', '100%', 'important');
+                                        img.style.setProperty('height', '100%', 'important');
+                                        img.style.setProperty('max-width', '100%', 'important');
+                                        img.style.setProperty('max-height', '100%', 'important');
+                                        img.style.setProperty('margin', '0', 'important');
+                                        img.style.setProperty('padding', '0', 'important');
+                                        img.style.setProperty('display', 'block', 'important');
+                                    });
+                                } catch (e) { }
                             }
+
+                            // Run immediately
+                            forceZeroPadding();
+
+                            // Observe any future style changes epub.js makes on body
+                            if (typeof MutationObserver !== 'undefined') {
+                                const observer = new MutationObserver(() => {
+                                    forceZeroPadding();
+                                });
+                                observer.observe(body, { attributes: true, attributeFilter: ['style'] });
+
+                                // Disconnect after 3 seconds (epub.js is done by then)
+                                setTimeout(() => observer.disconnect(), 3000);
+                            }
+
+                            // Also poll a few times in case observer fires too fast
+                            [100, 300, 600, 1000].forEach(delay => {
+                                setTimeout(forceZeroPadding, delay);
+                            });
+
                         } catch (e) { console.warn('gap-fix error:', e); }
-                    }, 200);
+                    })();
 
                     updateContentSelectionMode(contents);
 
