@@ -472,6 +472,28 @@
             transition: background 0.3s;
         }
 
+        /* Remove epub.js internal spread gap */
+        #viewer .epub-container,
+        #viewer .epubjs-container {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #viewer .epub-view,
+        #viewer .epubjs-view {
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+        }
+
+        #viewer .epub-view>iframe,
+        #viewer .epubjs-view>iframe {
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            display: block !important;
+        }
+
         #page-peel {
             position: absolute;
             top: 0;
@@ -661,6 +683,7 @@
 
         const DEFAULT_BOOK = "https://s3.amazonaws.com/moby-dick/moby-dick.epub";
 
+        // UPDATED THEMES: Removed simple body rules, we now handle via forceful injection in toggleTheme
         const THEMES = {
             light: { body: { "color": "#000 !important", "background": "#fdfaf5 !important", "font-family": "Georgia" } },
             dark: { body: { "color": "#ffffff !important", "background": "#333333 !important", "font-family": "Georgia" } },
@@ -670,24 +693,23 @@
         function initReader(url) {
             book = ePub(url);
 
+            // Fix: Show single column in portrait mode (mobile/tab)
             const isPortrait = window.innerHeight > window.innerWidth;
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
                 flow: "paginated",
                 spread: isPortrait ? "none" : "auto",
-                minSpreadWidth: 815,
-                gap: 0 // <--- CHANGED: Set to 0 to remove gap
+                minSpreadWidth: 815
             });
 
             window.addEventListener('resize', () => {
                 const portrait = window.innerHeight > window.innerWidth;
-                if (rendition) {
-                    rendition.settings.gap = 0; // <--- CHANGED: Force 0 on resize
-                    if (typeof rendition.spread === 'function') {
-                        rendition.spread(portrait ? "none" : "auto");
-                    }
+                if (rendition && typeof rendition.spread === 'function') {
+                    rendition.spread(portrait ? "none" : "auto");
                 }
+                // Re-apply gap fix after orientation change
+                setTimeout(removeSpreadGap, 300);
             });
 
             let savedLocation = null;
@@ -715,26 +737,22 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: rgba(33, 150, 243, 0.3) !important; }
-
-                    /* CHANGED: Force removal of margins and make images full-size */
-                    body { margin: 0 !important; padding: 0 !important; }
-                    img { 
-                        width: 100% !important; 
-                        height: 100% !important; 
-                        object-fit: contain !important; 
-                        display: block !important; 
-                        margin: 0 !important;
-                    }
-                    svg { width: 100% !important; height: 100% !important; }
                 `;
                     contents.document.head.appendChild(style);
                     updateContentSelectionMode(contents);
 
+                    // Prevent native context menu (Copy/Cut/Paste) to let our custom highlight menu take over cleanly
                     contents.document.addEventListener('contextmenu', e => {
                         if (isHighlightMode) e.preventDefault();
                     });
 
+                    // Re-apply theme if content loads after theme switch
                     if (currentTheme === 'dark') applyDarkThemeForce(contents);
+                });
+
+                // ── Gap-killer: remove epub.js spread gap after every render ──
+                rendition.on('rendered', () => {
+                    removeSpreadGap();
                 });
 
                 rendition.on('relocated', (location) => {
@@ -743,6 +761,7 @@
 
                     if (document.activeElement !== noteInput) hideHighlightMenu();
 
+                    // STOP TTS ON PAGE CHANGE (Bridge & Native)
                     if (window.ReactNativeWebView && isSpeakingBridge) {
                         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
                         isSpeakingBridge = false;
@@ -754,6 +773,7 @@
                         if (icon) icon.className = 'fas fa-play';
                     }
 
+                    // Update Page Counter
                     try {
                         let pct = Math.round(location.start.percentage * 100);
                         if (isNaN(pct)) pct = 0;
@@ -797,7 +817,71 @@
             })
         }
 
+        /* --- SPREAD GAP REMOVAL --- */
+        function removeSpreadGap() {
+            try {
+                const isLandscape = window.innerWidth > window.innerHeight;
+                if (!isLandscape) return; // Only matters in landscape spread mode
+
+                const viewerEl = document.getElementById('viewer');
+                if (!viewerEl) return;
+
+                // Target epub.js inner container — it uses class names like 'epub-container' or direct child divs
+                const container = viewerEl.querySelector('.epub-container')
+                    || viewerEl.querySelector('.epubjs-container')
+                    || viewerEl.firstElementChild;
+                if (!container) return;
+
+                // Remove any column-gap or padding epub.js sets inline
+                container.style.columnGap = '0';
+                container.style.padding = '0';
+                container.style.margin = '0';
+                container.style.gap = '0';
+
+                // Each page view (iframe wrapper)
+                const views = container.querySelectorAll('.epub-view, .epubjs-view');
+                if (views.length === 2) {
+                    // Two-page spread: place them flush side by side filling viewer width exactly
+                    const totalW = viewerEl.offsetWidth;
+                    const totalH = viewerEl.offsetHeight;
+                    const halfW = Math.floor(totalW / 2);
+
+                    views.forEach((view, i) => {
+                        view.style.margin = '0';
+                        view.style.padding = '0';
+                        view.style.border = 'none';
+                        view.style.position = 'absolute';
+                        view.style.top = '0';
+                        view.style.left = (i === 0 ? 0 : halfW) + 'px';
+                        view.style.width = halfW + 'px';
+                        view.style.height = totalH + 'px';
+                        view.style.overflow = 'hidden';
+
+                        const iframe = view.querySelector('iframe');
+                        if (iframe) {
+                            iframe.style.margin = '0';
+                            iframe.style.padding = '0';
+                            iframe.style.border = 'none';
+                            iframe.style.display = 'block';
+                            iframe.style.width = halfW + 'px';
+                            iframe.style.height = totalH + 'px';
+                        }
+                    });
+                } else {
+                    // Single page: reset any leftover styles
+                    views.forEach(view => {
+                        view.style.margin = '0';
+                        view.style.padding = '0';
+                        view.style.border = 'none';
+                    });
+                }
+            } catch (e) {
+                console.warn('removeSpreadGap error:', e);
+            }
+        }
+
         /* --- HIGHLIGHT LOGIC --- */
+
         function toggleHighlightMode() {
             isHighlightMode = !isHighlightMode;
             const btn = document.getElementById('btn-highlight');
@@ -848,13 +932,16 @@
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewer.getBoundingClientRect();
 
+                // Target exactly the top edge of the selection rect
                 topPos = rect.top + viewerRect.top;
                 leftPos = rect.left + viewerRect.left + (rect.width / 2);
 
+                // If there's not enough room above the text (need approx 160px for menu)
                 if (topPos < 160) {
-                    topPos = rect.bottom + viewerRect.top;
+                    topPos = rect.bottom + viewerRect.top; // Push below text
                     isFlipped = true;
 
+                    // If placing below ALSO goes off screen (huge selection), clump to center of viewport
                     if (topPos > window.innerHeight - 170) {
                         topPos = window.innerHeight / 2 + 80;
                         leftPos = window.innerWidth / 2;
@@ -872,7 +959,7 @@
                 highlightMenu.style.transform = "translate(-50%, 15px)";
             } else {
                 highlightMenu.classList.remove('flipped');
-                highlightMenu.style.transform = "translate(-50%, calc(-100% - 15px))";
+                highlightMenu.style.transform = "translate(-50%, calc(-100% - 15px))"; // Shift entirely above target!
             }
             highlightMenu.style.top = topPos + "px"; highlightMenu.style.left = leftPos + "px"; highlightMenu.style.display = "flex";
         }
@@ -985,6 +1072,9 @@
         }
         function getStoredHighlights() { try { return JSON.parse(localStorage.getItem(`highlights_${bookId}`) || "[]"); } catch (e) { return []; } }
 
+
+        /* --- TTS (Text To Speech) with React Native Bridge --- */
+
         function getVisibleText() {
             const loc = rendition.currentLocation();
             if (!loc || !loc.start || !loc.end) return null;
@@ -1007,23 +1097,28 @@
             const btn = document.getElementById('btn-tts-play');
             const icon = btn.querySelector('i');
 
+            // STRATEGY 1: REACT NATIVE BRIDGE
             if (window.ReactNativeWebView) {
                 if (isSpeakingBridge) {
+                    // User wants to STOP/PAUSE
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
                     isSpeakingBridge = false;
-                    icon.className = 'fas fa-play';
+                    icon.className = 'fas fa-play'; // Update UI
                     showNotification("Paused");
                 } else {
+                    // User wants to SPEAK
                     const text = getVisibleText();
                     if (!text) { showNotification("No text found"); return; }
+
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: text }));
                     isSpeakingBridge = true;
-                    icon.className = 'fas fa-pause';
+                    icon.className = 'fas fa-pause'; // Update UI
                     showNotification("Reading...");
                 }
                 return;
             }
 
+            // STRATEGY 2: WEB BROWSER NATIVE
             if (!window.speechSynthesis) { showNotification('TTS not supported'); return; }
             const synth = window.speechSynthesis;
 
@@ -1052,10 +1147,12 @@
             }
         }
 
+        // Keep button icon in sync on visibility change
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) { }
+            if (document.hidden) { } // optional logic
         });
 
+        /* --- SIDEBAR & UI --- */
         function toggleSidebar() {
             sidebar.classList.toggle('open');
             sidebarOverlay.classList.toggle('active');
@@ -1108,6 +1205,7 @@
             });
         }
 
+        /* --- STANDARD FUNCTIONS --- */
         function generateTOC() {
             if (!navigationData || navigationData.length === 0) {
                 sidebarContent.innerHTML = "<div class='sidebar-item'>No Table of Contents</div>"; return;
@@ -1184,6 +1282,7 @@
             rendition.themes.register("sepia", THEMES.sepia);
         }
 
+        // FIXED: Helper to apply aggressive styles
         function applyDarkThemeForce(content) {
             let style = content.document.getElementById('dark-mode-style');
             if (!style) {
@@ -1191,6 +1290,7 @@
                 style.id = 'dark-mode-style';
                 content.document.head.appendChild(style);
             }
+            // Force ALL text elements to white
             style.innerHTML = `
             body, p, span, div, h1, h2, h3, h4, h5, h6, li, a { 
                 color: #ffffff !important; 
@@ -1204,6 +1304,7 @@
             currentTheme = THEME_ORDER[nextIndex];
             showNotification("Theme: " + currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1));
 
+            // 1. UI Theme
             document.body.classList.remove('dark-mode', 'sepia-mode');
             if (currentTheme === 'dark') {
                 document.body.classList.add('dark-mode');
@@ -1215,17 +1316,21 @@
                 peel.style.background = "#fdfaf5";
             }
 
+            // 2. Book Theme
             rendition.themes.select(currentTheme);
 
+            // 3. Force Styles for Dark Mode
             const contents = rendition.getContents();
             if (contents) {
                 contents.forEach(content => {
                     if (currentTheme === 'dark') {
+                        // Aggressive override
                         applyDarkThemeForce(content);
                         if (content.document.body) {
                             content.document.body.style.setProperty("background-color", "#333333", "important");
                         }
                     } else {
+                        // Remove overrides for Light/Sepia
                         let style = content.document.getElementById('dark-mode-style');
                         if (style) style.remove();
 
@@ -1388,6 +1493,7 @@
         const userId = params.get("userId") || "default_user";
         const decodedUrl = decodeURIComponent(url);
 
+        // Create a safe, unique ID based on userId and book URL
         bookId = `${userId}_${decodedUrl.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
         initReader(decodedUrl);
