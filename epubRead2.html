@@ -1284,6 +1284,36 @@
             }
         }
 
+        function clearTtsWordHighlight() {
+            const contents = rendition.getContents();
+            if (!contents || !contents[0]) return;
+            const win = contents[0].window;
+            const doc = contents[0].document;
+            
+            // 1. Remove DOM wrap
+            if (win.__ttsSpan) {
+                try {
+                    const parent = win.__ttsSpan.parentNode;
+                    if (parent) {
+                        const textNode = doc.createTextNode(win.__ttsSpan.textContent);
+                        parent.replaceChild(textNode, win.__ttsSpan);
+                        parent.normalize();
+                    }
+                } catch (e) {}
+                win.__ttsSpan = null;
+            }
+            
+            // 2. Clear API highlights
+            if (win.CSS && win.CSS.highlights) {
+                try { win.CSS.highlights.clear(); } catch(e){}
+            }
+            if (currentTtsWordCfi) {
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
+                currentTtsWordCfi = null;
+            }
+            try { win.getSelection().removeAllRanges(); } catch(e){}
+        }
+
         let currentTtsWordCfi = null;
 
         // Smooth word-by-word highlight synced to speech charIndex
@@ -1323,52 +1353,56 @@
             if (startSet) {
                 if (!endSet) {
                     const lastMap = ttsNodesMap[ttsNodesMap.length - 1];
-                    hlRange.setEnd(lastMap.node, lastMap.nodeEnd);
+                    try { hlRange.setEnd(lastMap.node, lastMap.nodeEnd); } catch(e){}
                 }
                 
+                // STRATEGY 1: DIRECT DOM SPAN (100% Guaranteed Visible everywhere)
                 try {
-                    // Try to scroll the highlight smoothly into view if out of bounds (prevent layout jump)
-                    const el = hlRange.startContainer.parentElement;
-                    if (el && typeof el.scrollIntoViewIfNeeded === 'function') {
-                        el.scrollIntoViewIfNeeded(false);
-                    } else if (el && typeof el.scrollIntoView === 'function') {
-                        const rect = el.getBoundingClientRect();
-                        if(rect.top < 0 || rect.bottom > win.innerHeight) el.scrollIntoView({behavior: "smooth", block: "nearest"});
+                    const span = doc.createElement('span');
+                    span.style.backgroundColor = '#ffeb3b'; // vibrant yellow
+                    span.style.color = '#000000'; // high contrast text
+                    span.style.borderRadius = '3px';
+                    span.style.fontWeight = 'bold';
+                    span.style.boxShadow = '0 0 3px rgba(0,0,0,0.3)';
+                    span.className = 'tts-active-word';
+                    
+                    hlRange.surroundContents(span);
+                    win.__ttsSpan = span;
+                    
+                    // Auto-pan if going out of view
+                    const rect = span.getBoundingClientRect();
+                    if (rect.top < 0 || rect.bottom > win.innerHeight) {
+                        span.scrollIntoView({behavior: "smooth", block: "center"});
                     }
-                } catch(e) {}
+                    return; // SUCCESS
+                } catch(e) {
+                    // Fall down to next strategy if word crosses HTML tags (like <b> bold boundaries)
+                }
 
+                // STRATEGY 2: CSS Highlights API (Modern Browsers)
                 try {
                     if (win.CSS && win.CSS.highlights) {
                         const highlight = new win.Highlight(hlRange);
                         win.CSS.highlights.set("tts-word", highlight);
-                    } else {
-                        // Fallback completely to epubjs annotation if CSS.highlights is unavailable (fixes Android issues)
-                        const wordCfi = new ePub.CFI(hlRange, contents[0].cfiBase).toString();
-                        rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffea00", "fill-opacity": "0.8", "mix-blend-mode": "multiply" });
-                        currentTtsWordCfi = wordCfi;
-                    }
-                } catch(e) {
-                    // Absolute fallback if everything fails
+                        return; // SUCCESS
+                    } 
+                } catch(e) {}
+
+                // STRATEGY 3: EPUB.JS Annotations
+                try {
+                    const wordCfi = new ePub.CFI(hlRange, contents[0].cfiBase).toString();
+                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffea00", "fill-opacity": "0.8", "mix-blend-mode": "multiply" });
+                    currentTtsWordCfi = wordCfi;
+                    return; // SUCCESS
+                } catch(e) {}
+
+                // STRATEGY 4: Native Selection
+                try {
                     const sel = win.getSelection();
                     sel.removeAllRanges();
                     sel.addRange(hlRange);
-                }
+                } catch(e){}
             }
-        }
-        
-        function clearTtsWordHighlight() {
-            const contents = rendition.getContents();
-            if (!contents || !contents[0]) return;
-            const win = contents[0].window;
-            
-            if (win.CSS && win.CSS.highlights) {
-                win.CSS.highlights.clear();
-            }
-            if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
-                currentTtsWordCfi = null;
-            }
-            try { win.getSelection().removeAllRanges(); } catch(e){}
         }
 
         function applyTtsHighlight() {
