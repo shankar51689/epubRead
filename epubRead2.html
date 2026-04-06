@@ -1290,6 +1290,7 @@
             const contents = rendition.getContents();
             if(!contents || !contents[0]) return;
             const win = contents[0].window;
+            const doc = contents[0].document; // FIXED: defined doc
 
             // 1. Clear preferred CSS.highlights
             if (win.CSS && win.CSS.highlights) {
@@ -1370,9 +1371,9 @@
                     }
                 } catch(e) {}
 
-                // STRATEGY 1: CSS Highlights API (Preferred)
+                // STRATEGY 1: CSS Highlights API (Preferred but notoriously broken in Android WebViews)
                 try {
-                    if (win.CSS && win.CSS.highlights) {
+                    if (!window.ReactNativeWebView && win.CSS && win.CSS.highlights) {
                         const highlight = new win.Highlight(hlRange);
                         win.CSS.highlights.set("tts-word", highlight);
                         return; // SUCCESS
