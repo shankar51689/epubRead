@@ -1284,12 +1284,19 @@
             }
         }
 
-        let currentTtsWordCfi = null;
+        let globalTtsQueue = [];
+        let globalTtsIndex = 0;
 
         function clearTtsWordHighlight() {
-            if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
-                currentTtsWordCfi = null;
+            const contentsList = rendition.getContents();
+            if(!contentsList || contentsList.length === 0) return;
+
+            for (let contents of contentsList) {
+                const win = contents.window;
+                if (win && win.CSS && win.CSS.highlights) {
+                    try { win.CSS.highlights.clear(); } catch(e){}
+                }
+                try { win.getSelection().removeAllRanges(); } catch(e){}
             }
         }
 
@@ -1346,25 +1353,28 @@
                     }
                 } catch(e) {}
 
-                // STRATEGY: Exclusively EPUB.js Annotations (guaranteed visibility in React Native)
-                try {
-                    let contentsList = rendition.getContents();
-                    let targetContent = contentsList[0];
-                    for(let c of contentsList) {
-                        if(c.document === doc) { targetContent = c; break; }
-                    }
+                // EXTREME PERFORMANCE UPDATE (Bypasses laggy EPUB CFD calculations)
+                if(!doc.__ttsStylesLoaded) {
+                     const style = doc.createElement('style');
+                     style.innerHTML = `::highlight(tts-word) { background-color: #ffeb3b !important; color: #000 !important; } ::selection { background-color: #ffeb3b !important; color: #000 !important; }`;
+                     doc.head.appendChild(style);
+                     doc.__ttsStylesLoaded = true;
+                }
 
-                    const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
-                    
-                    // This is exactly the method used for the complete text highlight, applied to the word.
-                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { 
-                        fill: "#ffeb3b", 
-                        "fill-opacity": "0.6", 
-                        "mix-blend-mode": "multiply" 
-                    });
-                    
-                    currentTtsWordCfi = wordCfi;
+                try {
+                    if (win.CSS && win.CSS.highlights) {
+                        const highlight = new win.Highlight(hlRange);
+                        win.CSS.highlights.set("tts-word", highlight);
+                        return; // Zero CPU Cost Highlights
+                    }
                 } catch(e) {}
+                
+                // Fallback to Lightning-Fast native text-selector hook (visibly identically styling injected above via CSS)
+                try {
+                    const sel = win.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(hlRange);
+                } catch(err){}
             }
         }
 
@@ -1377,55 +1387,50 @@
             clearTtsWordHighlight();
         }
 
-        let webTtsQueue = [];
-        let webTtsIndex = 0;
-
-        function playWebNativeSentences() {
-            if (webTtsIndex >= webTtsQueue.length) {
+        function playTtsSequence() {
+            if (globalTtsIndex >= globalTtsQueue.length) {
                 const icon = document.getElementById('btn-tts-play').querySelector('i');
                 icon.className = 'fas fa-play';
                 removeTtsHighlight();
+                isTtsMode = false;
                 return;
             }
 
-            const current = webTtsQueue[webTtsIndex];
-            const utter = new SpeechSynthesisUtterance(current.text);
+            const current = globalTtsQueue[globalTtsIndex];
+            const icon = document.getElementById('btn-tts-play').querySelector('i');
+            icon.className = 'fas fa-pause';
+            showNotification("Reading...");
 
-            utter.onstart = () => {
-                const icon = document.getElementById('btn-tts-play').querySelector('i');
-                icon.className = 'fas fa-pause';
-                showNotification("Reading...");
-            };
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
+            } else {
+                const utter = new SpeechSynthesisUtterance(current.text);
 
-            utter.onboundary = (e) => {
-                if (e.name === 'word') {
-                    const textRemainder = utter.text.substring(e.charIndex);
-                    const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
-                    const validLength = wordMatch ? wordMatch[0].length : 1;
-                    // Safely transition back to precise word tracking
-                    requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, validLength));
-                }
-            };
+                utter.onboundary = (e) => {
+                    if (e.name === 'word') {
+                        const textRemainder = utter.text.substring(e.charIndex);
+                        const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
+                        const validLength = wordMatch ? wordMatch[0].length : 1;
+                        requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, validLength));
+                    }
+                };
 
-            utter.onend = () => {
-                webTtsIndex++;
-                playWebNativeSentences();
-            };
+                utter.onend = () => {
+                    globalTtsIndex++;
+                    playTtsSequence();
+                };
 
-            utter.onerror = (e) => {
-                if (e.error !== 'canceled') {
-                    console.error("Speech Error:", e);
-                    webTtsIndex++;
-                    playWebNativeSentences();
-                } else {
-                    const icon = document.getElementById('btn-tts-play').querySelector('i');
-                    icon.className = 'fas fa-play';
-                    removeTtsHighlight();
-                }
-            };
+                utter.onerror = (e) => {
+                    if (e.error !== 'canceled') {
+                        console.error("Speech Error:", e);
+                        globalTtsIndex++;
+                        playTtsSequence();
+                    }
+                };
 
-            try { window.speechSynthesis.cancel(); } catch(e){}
-            window.speechSynthesis.speak(utter);
+                try { window.speechSynthesis.cancel(); } catch(e){}
+                window.speechSynthesis.speak(utter);
+            }
         }
 
         function extractSentences(text) {
@@ -1446,52 +1451,40 @@
             const btn = document.getElementById('btn-tts-play');
             const icon = btn.querySelector('i');
 
-            // STRATEGY 1: REACT NATIVE BRIDGE
-            if (window.ReactNativeWebView) {
-                if (isSpeakingBridge) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
-                    isSpeakingBridge = false;
-                    icon.className = 'fas fa-play';
-                    removeTtsHighlight();
-                    showNotification("Paused");
+            if (isTtsMode && (globalTtsQueue.length > 0 && globalTtsIndex < globalTtsQueue.length)) {
+                // If actively tracking a sequence
+                if (window.ReactNativeWebView) {
+                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
+                     icon.className = 'fas fa-play';
+                     removeTtsHighlight();
+                     isTtsMode = false;
+                     showNotification("Paused");
                 } else {
-                    const text = getVisibleText();
-                    if (!text) { showNotification("No text found"); return; }
-
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: text }));
-                    isSpeakingBridge = true;
-                    icon.className = 'fas fa-pause';
-                    showNotification("Reading...");
+                     if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                          if (window.speechSynthesis.paused) {
+                               window.speechSynthesis.resume();
+                               icon.className = 'fas fa-pause';
+                               showNotification("Resuming...");
+                          } else {
+                               window.speechSynthesis.pause();
+                               icon.className = 'fas fa-play';
+                               removeTtsHighlight();
+                               showNotification("Paused");
+                          }
+                     }
                 }
                 return;
             }
 
-            // STRATEGY 2: WEB BROWSER NATIVE
-            if (!window.speechSynthesis) { showNotification('TTS not supported'); return; }
-            const synth = window.speechSynthesis;
-
-            if (synth.speaking || webTtsQueue.length > 0 && webTtsIndex < webTtsQueue.length) {
-                if (synth.paused) {
-                    synth.resume();
-                    icon.className = 'fas fa-pause';
-                    showNotification("Resuming...");
-                } else {
-                    synth.pause();
-                    icon.className = 'fas fa-play';
-                    removeTtsHighlight(); // Clears highlight on manual pause
-                    showNotification("Paused");
-                }
-            } else {
-                const text = getVisibleText();
-                if (!text) { showNotification("No visible text"); return; }
-                
-                // Set up and start queued sentences
-                webTtsQueue = extractSentences(text);
-                webTtsIndex = 0;
-                playWebNativeSentences();
-            }
+            const text = getVisibleText();
+            if (!text) { showNotification("No text found"); return; }
+            
+            isTtsMode = true;
+            globalTtsQueue = extractSentences(text);
+            globalTtsIndex = 0;
+            
+            playTtsSequence();
         }
-
 
         // --- RN Bridge Listeners ---
         const handleBridgeMessage = (event) => {
@@ -1500,11 +1493,17 @@
                 if (typeof data === 'string') data = JSON.parse(data);
 
                 if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
-                    requestAnimationFrame(() => highlightTtsWord(data.charIndex, data.charLength || 5));
-                } else if (data.type === 'tts-stop' || data.type === 'tts-finish') {
+                    const currentObj = globalTtsQueue[globalTtsIndex];
+                    if (currentObj) {
+                        requestAnimationFrame(() => highlightTtsWord(currentObj.startIndex + data.charIndex, data.charLength || 5));
+                    }
+                } else if (data.type === 'tts-finish') {
+                    globalTtsIndex++;
+                    playTtsSequence();
+                } else if (data.type === 'tts-stop') {
                     const icon = document.getElementById('btn-tts-play').querySelector('i');
                     if (icon) icon.className = 'fas fa-play';
-                    isSpeakingBridge = false;
+                    isTtsMode = false;
                     removeTtsHighlight();
                 }
             } catch (e) { }
