@@ -311,50 +311,6 @@
             }
         }
 
-        /* Landscape Mobile Optimization */
-        @media (orientation: landscape) and (max-height: 500px) {
-            #toolbar {
-                height: 44px;
-                padding: 0px 10px;
-                flex-wrap: nowrap;
-                justify-content: space-between;
-            }
-            .group-meta {
-                width: auto;
-                order: 1;
-                border-bottom: none;
-                padding-bottom: 0px;
-            }
-            .group-nav {
-                order: 2;
-                flex-grow: 0;
-            }
-            .group-settings {
-                order: 3;
-                flex-grow: 0;
-            }
-            #toolbar button {
-                width: 32px;
-                height: 32px;
-                font-size: 14px;
-            }
-            #page-counter {
-                bottom: 8px;
-                font-size: 11px;
-                padding: 3px 8px;
-            }
-            #sidebar {
-                width: 65%;
-            }
-            .helper-text {
-                display: none;
-            }
-            .search-container.active #search-input {
-                width: 120px;
-            }
-        }
-
-
         #sidebar {
             position: absolute;
             top: 0;
@@ -812,14 +768,39 @@
                                     body.style.setProperty('margin', '0px', 'important');
                                     body.style.setProperty('overflow', 'hidden', 'important');
 
-                                    // Stretch images beautifully without breaking layout
+                                    // Handle fixed-layout (pre-paginated) books where epub.js applies a transform scale
+                                    // and fixed px dimensions to the body or root wrapper div.
+                                    body.style.setProperty('width', '100vw', 'important');
+                                    body.style.setProperty('height', '100vh', 'important');
+                                    body.style.setProperty('max-width', '100vw', 'important');
+                                    body.style.setProperty('max-height', '100vh', 'important');
+                                    body.style.setProperty('transform', 'none', 'important');
+
+                                    // Also kill fixed sizing/transforms on any major container divs inside body
+                                    const containers = body.querySelectorAll('div, span');
+                                    containers.forEach(div => {
+                                        // If epub or publisher set a fixed size, override it to fill
+                                        div.style.setProperty('width', '100vw', 'important');
+                                        div.style.setProperty('height', '100vh', 'important');
+                                        div.style.setProperty('max-width', '100vw', 'important');
+                                        div.style.setProperty('max-height', '100vh', 'important');
+                                        div.style.setProperty('margin', '0', 'important');
+                                        div.style.setProperty('padding', '0', 'important');
+                                        // Remove fixed layout translation/scaling
+                                        div.style.setProperty('transform', 'none', 'important');
+                                    });
+
+                                    // Stretch images to fill the half-page exactly 
                                     const images = body.querySelectorAll('img, svg, image');
                                     images.forEach(img => {
-                                        img.style.setProperty('max-width', '100%', 'important');
+                                        img.style.setProperty('width', '100vw', 'important');
+                                        img.style.setProperty('height', '100vh', 'important');
+                                        img.style.setProperty('max-width', '100vw', 'important');
                                         img.style.setProperty('max-height', '100vh', 'important');
-                                        img.style.setProperty('object-fit', 'contain', 'important');
+                                        img.style.setProperty('margin', '0', 'important');
+                                        img.style.setProperty('padding', '0', 'important');
                                         img.style.setProperty('display', 'block', 'important');
-                                        img.style.setProperty('margin', '0 auto', 'important');
+                                        img.style.setProperty('object-fit', 'cover', 'important');
                                     });
                                 } catch (e) { }
                             }
@@ -868,22 +849,27 @@
 
                     if (document.activeElement !== noteInput) hideHighlightMenu();
 
-                    // STOP TTS ON PAGE CHANGE (Bridge & Native)
-                    isTtsMode = false;
-                    globalTtsQueue = [];
-                    globalTtsIndex = 0;
+                    // STOP TTS ON PAGE CHANGE
+                    if (isTtsMode) {
+                        isTtsMode = false;
+                        globalTtsQueue = [];
+                        globalTtsIndex = 0;
+                        try { removeTtsHighlight(); } catch (e) { }
 
-                    if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
-                        isSpeakingBridge = false;
-                    } 
-                    if (window.speechSynthesis) {
-                        try { window.speechSynthesis.cancel(); } catch(e) {}
+                        const icon = btnTtsPlay.querySelector('i');
+                        if (icon) icon.className = 'fas fa-play';
+
+                        if (window.ReactNativeWebView) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
+                        } else if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+                            window.speechSynthesis.cancel();
+                        }
                     }
-                    const icon = btnTtsPlay.querySelector('i');
-                    if (icon) icon.className = 'fas fa-play';
 
-                    try { removeTtsHighlight(); } catch(e) {}
+                    if (ttsHighlightCfiRange) {
+                        try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch (e) { }
+                        ttsHighlightCfiRange = null;
+                    }
 
                     // Update Page Counter
                     try {
@@ -1257,7 +1243,7 @@
                     NodeFilter.SHOW_TEXT,
                     {
                         acceptNode: function (node) {
-                            if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+                            if (!visRange.intersectNode(node)) return NodeFilter.FILTER_REJECT;
                             // Check if node is explicitly hidden
                             let parent = node.parentElement;
                             if (parent && win) {
@@ -1309,14 +1295,14 @@
 
         function clearTtsWordHighlight() {
             if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
                 currentTtsWordCfi = null;
             }
         }
 
         function highlightTtsWord(charIndex, charLength) {
             clearTtsWordHighlight();
-            if(ttsNodesMap.length === 0) return;
+            if (ttsNodesMap.length === 0) return;
 
             let targetStart = charIndex;
             let targetEnd = charIndex + charLength;
@@ -1351,11 +1337,11 @@
                 const doc = startNode.ownerDocument;
                 const win = doc.defaultView;
                 const hlRange = doc.createRange();
-                
+
                 try {
                     hlRange.setStart(startNode, startOffset);
                     hlRange.setEnd(endNode, endOffset);
-                } catch(e) { return; }
+                } catch (e) { return; }
 
                 try {
                     const el = hlRange.startContainer.parentElement;
@@ -1363,28 +1349,28 @@
                         el.scrollIntoViewIfNeeded(false);
                     } else if (el && typeof el.scrollIntoView === 'function') {
                         const rect = el.getBoundingClientRect();
-                        if(rect.top < 0 || rect.bottom > win.innerHeight) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        if (rect.top < 0 || rect.bottom > win.innerHeight) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
                     }
-                } catch(e) {}
+                } catch (e) { }
 
                 // STRATEGY: Native EPUB.js Annotations (GUARANTEED visible in WebView)
                 try {
                     let contentsList = rendition.getContents();
                     let targetContent = contentsList[0];
-                    for(let c of contentsList) {
-                        if(c.document === doc) { targetContent = c; break; }
+                    for (let c of contentsList) {
+                        if (c.document === doc) { targetContent = c; break; }
                     }
 
                     const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
 
-                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { 
-                        fill: "#ffeb3b", 
-                        "fill-opacity": "0.6", 
-                        "mix-blend-mode": "multiply" 
+                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
+                        fill: "#ffeb3b",
+                        "fill-opacity": "0.6",
+                        "mix-blend-mode": "multiply"
                     });
-                    
+
                     currentTtsWordCfi = wordCfi;
-                } catch(e) {}
+                } catch (e) { }
             }
         }
 
@@ -1438,7 +1424,7 @@
                     }
                 };
 
-                try { window.speechSynthesis.cancel(); } catch(e){}
+                try { window.speechSynthesis.cancel(); } catch (e) { }
                 window.speechSynthesis.speak(utter);
             }
         }
@@ -1464,35 +1450,35 @@
             if (isTtsMode && (globalTtsQueue.length > 0 && globalTtsIndex < globalTtsQueue.length)) {
                 // If actively tracking a sequence
                 if (window.ReactNativeWebView) {
-                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
-                     icon.className = 'fas fa-play';
-                     removeTtsHighlight();
-                     isTtsMode = false;
-                     showNotification("Paused");
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
+                    icon.className = 'fas fa-play';
+                    removeTtsHighlight();
+                    isTtsMode = false;
+                    showNotification("Paused");
                 } else {
-                     if (window.speechSynthesis && window.speechSynthesis.speaking) {
-                          if (window.speechSynthesis.paused) {
-                               window.speechSynthesis.resume();
-                               icon.className = 'fas fa-pause';
-                               showNotification("Resuming...");
-                          } else {
-                               window.speechSynthesis.pause();
-                               icon.className = 'fas fa-play';
-                               removeTtsHighlight();
-                               showNotification("Paused");
-                          }
-                     }
+                    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                        if (window.speechSynthesis.paused) {
+                            window.speechSynthesis.resume();
+                            icon.className = 'fas fa-pause';
+                            showNotification("Resuming...");
+                        } else {
+                            window.speechSynthesis.pause();
+                            icon.className = 'fas fa-play';
+                            removeTtsHighlight();
+                            showNotification("Paused");
+                        }
+                    }
                 }
                 return;
             }
 
             const text = getVisibleText();
             if (!text) { showNotification("No text found"); return; }
-            
+
             isTtsMode = true;
             globalTtsQueue = extractSentences(text);
             globalTtsIndex = 0;
-            
+
             playTtsSequence();
         }
 
