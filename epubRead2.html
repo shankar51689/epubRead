@@ -740,6 +740,8 @@
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
                     .hl-tts { fill: #2196f3 !important; fill-opacity: 0.1 !important; pointer-events: none !important; }
                     ::highlight(tts-word) { background-color: #ffeb3b; color: #000; }
+                    .tts-paused-indicator { border-bottom: 3px dashed #f44336 !important; box-shadow: 0 0 10px rgba(244,67,54,0.8) !important; filter: drop-shadow(0 0 5px red); animation: blink 1s infinite alternate; }
+                    @keyframes blink { 0% { opacity: 1; } 100% { opacity: 0.4; } }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1415,11 +1417,26 @@
             }
         }
         
+        let isTtsPaused = false;
+        
+        function setTtsPausedIndicator(paused) {
+            try {
+                const contents = rendition.getContents();
+                if (!contents || !contents[0]) return;
+                const win = contents[0].window;
+                if (win.__ttsSpan) {
+                    if (paused) win.__ttsSpan.classList.add('tts-paused-indicator');
+                    else win.__ttsSpan.classList.remove('tts-paused-indicator');
+                }
+            } catch(e) {}
+        }
+        
         function removeTtsHighlight() {
             if (ttsHighlightCfiRange) {
                 try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch(e) {}
                 ttsHighlightCfiRange = null;
             }
+            isTtsPaused = false;
             clearTtsWordHighlight();
         }
 
@@ -1429,16 +1446,24 @@
 
             // STRATEGY 1: REACT NATIVE BRIDGE
             if (window.ReactNativeWebView) {
-                if (isSpeakingBridge) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
-                    isSpeakingBridge = false;
-                    icon.className = 'fas fa-play';
-                    removeTtsHighlight();
-                    showNotification("Paused");
+                if (isSpeakingBridge || isTtsPaused) {
+                    if (!isTtsPaused) {
+                        isTtsPaused = true;
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-pause' }));
+                        icon.className = 'fas fa-play';
+                        showNotification("Paused");
+                        setTtsPausedIndicator(true);
+                    } else {
+                        isTtsPaused = false;
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-resume' }));
+                        icon.className = 'fas fa-pause';
+                        showNotification("Resuming...");
+                        setTtsPausedIndicator(false);
+                    }
                 } else {
                     const text = getVisibleText();
                     if (!text) { showNotification("No text found"); return; }
-
+                    isTtsPaused = false;
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: text }));
                     isSpeakingBridge = true;
                     icon.className = 'fas fa-pause';
@@ -1452,15 +1477,19 @@
             if (!window.speechSynthesis) { showNotification('TTS not supported'); return; }
             const synth = window.speechSynthesis;
 
-            if (synth.speaking) {
-                if (synth.paused) {
-                    synth.resume();
-                    icon.className = 'fas fa-pause';
-                    showNotification("Resuming...");
-                } else {
+            if (synth.speaking || isTtsPaused) {
+                if (!isTtsPaused) {
                     synth.pause();
+                    isTtsPaused = true;
                     icon.className = 'fas fa-play';
                     showNotification("Paused");
+                    setTtsPausedIndicator(true);
+                } else {
+                    synth.resume();
+                    isTtsPaused = false;
+                    icon.className = 'fas fa-pause';
+                    showNotification("Resuming...");
+                    setTtsPausedIndicator(false);
                 }
             } else {
                 const text = getVisibleText();
