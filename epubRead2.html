@@ -1431,8 +1431,6 @@
                 const icon = document.getElementById('btn-tts-play').querySelector('i');
                 icon.className = 'fas fa-pause';
                 showNotification("Reading...");
-                // Highlighting that exact sentence / line currently going under process
-                highlightTtsWord(current.startIndex, current.length);
             };
 
             utter.onboundary = (e) => {
@@ -1500,8 +1498,6 @@
                     isSpeakingBridge = true;
                     icon.className = 'fas fa-pause';
                     showNotification("Reading...");
-                    // React Native Fallback highlight
-                    highlightTtsWord(0, text.length);
                 }
                 return;
             }
