@@ -1441,6 +1441,8 @@
                     isSpeakingBridge = true;
                     icon.className = 'fas fa-pause';
                     showNotification("Reading...");
+                    // FALLBACK: If word-tracking fails to arrive from Native Bridge, highlight the entire block being read
+                    highlightTtsWord(0, text.length);
                 }
                 return;
             }
@@ -1479,6 +1481,8 @@
                 utter.onstart = () => {
                     icon.className = 'fas fa-pause';
                     showNotification("Reading...");
+                    // FALLBACK: If onboundary word-tracking fails on Android browser, highlight the entire block being read
+                    highlightTtsWord(0, text.length);
                 };
                 utter.onend = () => {
                     icon.className = 'fas fa-play';
