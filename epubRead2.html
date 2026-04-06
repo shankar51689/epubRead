@@ -1371,8 +1371,9 @@
                     }
                 } catch(e) {}
 
-                // STRATEGY 1: CSS Highlights API (Preferred but notoriously broken in Android WebViews)
+                // STRATEGY 1: CSS Highlights API (Preferred)
                 try {
+                    // Bypass in ReactNativeWebView if needed, but we try anyway. 
                     if (!window.ReactNativeWebView && win.CSS && win.CSS.highlights) {
                         const highlight = new win.Highlight(hlRange);
                         win.CSS.highlights.set("tts-word", highlight);
@@ -1381,17 +1382,32 @@
                 } catch(e) {}
 
                 // STRATEGY 2: EPUB.JS Annotations (Fallback)
+                let cfiSuccess = false;
                 try {
                     const wordCfi = new ePub.CFI(hlRange, contents[0].cfiBase).toString();
-                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffeb3b", "fill-opacity": "0.4", "mix-blend-mode": "multiply" });
+                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffeb3b", "fill-opacity": "0.6", "mix-blend-mode": "multiply" });
                     currentTtsWordCfi = wordCfi;
+                    cfiSuccess = true;
+                } catch(e) {}
+
+                if(cfiSuccess) return;
+
+                // STRATEGY 3: Final bulletproof fallback - Dynamic DOM span wrapper
+                try {
+                    const span = doc.createElement('span');
+                    span.className = 'tts-active-word';
+                    span.style.backgroundColor = '#ffeb3b';
+                    span.style.color = '#000';
+                    span.style.borderRadius = '3px';
+                    span.style.padding = '0 2px';
+                    hlRange.surroundContents(span);
+                    win.__ttsSpan = span;
                 } catch(e) {
-                    // Final safety fallback
                     try {
                         const sel = win.getSelection();
                         sel.removeAllRanges();
                         sel.addRange(hlRange);
-                    } catch(e){}
+                    }catch(err){}
                 }
             }
         }
@@ -1469,10 +1485,12 @@
                     removeTtsHighlight();
                 };
                 utter.onerror = (e) => {
-                    if (e.error !== 'canceled') console.error(e);
+                    if (e.error !== 'canceled') console.error("Speech Error:", e);
                     icon.className = 'fas fa-play';
                     removeTtsHighlight();
                 };
+                
+                try { synth.cancel(); } catch(e){}
                 synth.speak(utter);
             }
         }
