@@ -1287,81 +1287,82 @@
         let currentTtsWordCfi = null;
 
         function clearTtsWordHighlight() {
-            const contents = rendition.getContents();
-            if(!contents || !contents[0]) return;
-            const win = contents[0].window;
-            const doc = contents[0].document; // FIXED: defined doc
+            const contentsList = rendition.getContents();
+            if(!contentsList || contentsList.length === 0) return;
 
-            // 1. Clear preferred CSS.highlights
-            if (win.CSS && win.CSS.highlights) {
-                try { win.CSS.highlights.clear(); } catch(e){}
+            for (let contents of contentsList) {
+                const win = contents.window;
+                const doc = contents.document;
+
+                if (win.CSS && win.CSS.highlights) {
+                    try { win.CSS.highlights.clear(); } catch(e){}
+                }
+
+                try { win.getSelection().removeAllRanges(); } catch(e){}
+                
+                if(win.__ttsSpan){
+                    try{
+                        const parent = win.__ttsSpan.parentNode;
+                        if(parent){
+                            const textNode = doc.createTextNode(win.__ttsSpan.textContent);
+                            parent.replaceChild(textNode, win.__ttsSpan);
+                            parent.normalize();
+                        }
+                    }catch(e){}
+                    win.__ttsSpan = null;
+                }
             }
 
-            // 2. Clear fallback epub annotations
             if (currentTtsWordCfi) {
                 try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
                 currentTtsWordCfi = null;
             }
-
-            // 3. Clear native selection fallback
-            try { win.getSelection().removeAllRanges(); } catch(e){}
-            
-            // 4. Remove safe DOM span wrapper if present from previous builds
-            if(win.__ttsSpan){
-                try{
-                    const parent = win.__ttsSpan.parentNode;
-                    if(parent){
-                        const textNode = doc.createTextNode(win.__ttsSpan.textContent);
-                        parent.replaceChild(textNode, win.__ttsSpan);
-                        parent.normalize();
-                    }
-                }catch(e){}
-                win.__ttsSpan = null;
-            }
         }
 
         function highlightTtsWord(charIndex, charLength) {
-            const contents = rendition.getContents();
-            if(!contents || !contents[0]) return;
-            const doc = contents[0].document;
-            const win = contents[0].window;
-
-            // Remove previous highlight
             clearTtsWordHighlight();
             if(ttsNodesMap.length === 0) return;
-
-            const hlRange = doc.createRange();
-            let startSet = false;
-            let endSet = false;
 
             let targetStart = charIndex;
             let targetEnd = charIndex + charLength;
 
+            let startNode = null;
+            let startOffset = 0;
+            let endNode = null;
+            let endOffset = 0;
+
             for (let i = 0; i < ttsNodesMap.length; i++) {
                 let map = ttsNodesMap[i];
 
-                if (!startSet && targetStart >= map.textStart && targetStart < map.textEnd) {
-                    let offsetInNode = map.nodeStart + (targetStart - map.textStart);
-                    hlRange.setStart(map.node, offsetInNode);
-                    startSet = true;
+                if (!startNode && targetStart >= map.textStart && targetStart < map.textEnd) {
+                    startNode = map.node;
+                    startOffset = map.nodeStart + (targetStart - map.textStart);
                 }
 
                 if (targetEnd > map.textStart && targetEnd <= map.textEnd) {
-                    let offsetInNode = map.nodeStart + (targetEnd - map.textStart);
-                    hlRange.setEnd(map.node, offsetInNode);
-                    endSet = true;
+                    endNode = map.node;
+                    endOffset = map.nodeStart + (targetEnd - map.textStart);
                     break;
                 }
             }
 
-            if (startSet) {
-                if (!endSet) {
+            if (startNode) {
+                if (!endNode) {
                     const lastMap = ttsNodesMap[ttsNodesMap.length - 1];
-                    try { hlRange.setEnd(lastMap.node, lastMap.nodeEnd); } catch(e){}
+                    endNode = lastMap.node;
+                    endOffset = lastMap.nodeEnd;
                 }
 
+                const doc = startNode.ownerDocument;
+                const win = doc.defaultView;
+                const hlRange = doc.createRange();
+                
                 try {
-                    // Try to scroll the highlight smoothly into view if out of bounds
+                    hlRange.setStart(startNode, startOffset);
+                    hlRange.setEnd(endNode, endOffset);
+                } catch(e) { return; }
+
+                try {
                     const el = hlRange.startContainer.parentElement;
                     if (el && typeof el.scrollIntoViewIfNeeded === 'function') {
                         el.scrollIntoViewIfNeeded(false);
@@ -1384,10 +1385,16 @@
                     return; // SUCCESS
                 } catch(e) {}
 
-                // STRATEGY 2: EPUB.JS Annotations (Fallback for complex nested HTML tags)
+                // STRATEGY 2: EPUB.JS Annotations (Fallback for complex ranges)
                 let cfiSuccess = false;
                 try {
-                    const wordCfi = new ePub.CFI(hlRange, contents[0].cfiBase).toString();
+                    let contentsList = rendition.getContents();
+                    let targetContent = contentsList[0];
+                    for(let c of contentsList) {
+                        if(c.document === doc) { targetContent = c; break; }
+                    }
+
+                    const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
                     rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffeb3b", "fill-opacity": "0.6", "mix-blend-mode": "multiply" });
                     currentTtsWordCfi = wordCfi;
                     cfiSuccess = true;
