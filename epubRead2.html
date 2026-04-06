@@ -1287,32 +1287,6 @@
         let currentTtsWordCfi = null;
 
         function clearTtsWordHighlight() {
-            const contentsList = rendition.getContents();
-            if(!contentsList || contentsList.length === 0) return;
-
-            for (let contents of contentsList) {
-                const win = contents.window;
-                const doc = contents.document;
-
-                if (win.CSS && win.CSS.highlights) {
-                    try { win.CSS.highlights.clear(); } catch(e){}
-                }
-
-                try { win.getSelection().removeAllRanges(); } catch(e){}
-                
-                if(win.__ttsSpan){
-                    try{
-                        const parent = win.__ttsSpan.parentNode;
-                        if(parent){
-                            const textNode = doc.createTextNode(win.__ttsSpan.textContent);
-                            parent.replaceChild(textNode, win.__ttsSpan);
-                            parent.normalize();
-                        }
-                    }catch(e){}
-                    win.__ttsSpan = null;
-                }
-            }
-
             if (currentTtsWordCfi) {
                 try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
                 currentTtsWordCfi = null;
@@ -1372,21 +1346,7 @@
                     }
                 } catch(e) {}
 
-                // STRATEGY 1: DOM Span Wrapper (100% Visibility Guaranteed)
-                try {
-                    const span = doc.createElement('span');
-                    span.className = 'tts-active-word';
-                    span.style.backgroundColor = '#ffeb3b';
-                    span.style.color = '#000';
-                    span.style.borderRadius = '3px';
-                    
-                    hlRange.surroundContents(span);
-                    win.__ttsSpan = span;
-                    return; // SUCCESS
-                } catch(e) {}
-
-                // STRATEGY 2: EPUB.JS Annotations (Fallback for complex ranges)
-                let cfiSuccess = false;
+                // STRATEGY: Exclusively EPUB.js Annotations (guaranteed visibility in React Native)
                 try {
                     let contentsList = rendition.getContents();
                     let targetContent = contentsList[0];
@@ -1395,19 +1355,16 @@
                     }
 
                     const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
-                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffeb3b", "fill-opacity": "0.6", "mix-blend-mode": "multiply" });
+                    
+                    // This is exactly the method used for the complete text highlight, applied to the word.
+                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { 
+                        fill: "#ffeb3b", 
+                        "fill-opacity": "0.6", 
+                        "mix-blend-mode": "multiply" 
+                    });
+                    
                     currentTtsWordCfi = wordCfi;
-                    cfiSuccess = true;
                 } catch(e) {}
-
-                if(cfiSuccess) return;
-
-                // STRATEGY 3: Native Selection Fallback
-                try {
-                    const sel = win.getSelection();
-                    sel.removeAllRanges();
-                    sel.addRange(hlRange);
-                }catch(err){}
             }
         }
 
