@@ -1214,6 +1214,7 @@
         let ttsNodesMap = [];
         let ttsOriginalText = "";
 
+        // Extracts visible text accurately, avoiding hidden elements
         function getVisibleText() {
             ttsNodesMap = [];
             ttsOriginalText = "";
@@ -1222,6 +1223,7 @@
             
             const contents = rendition.getContents();
             if (!contents || !contents[0]) return null;
+            const win = contents[0].window;
             
             try {
                 let rangeStart = rendition.getRange(loc.start.cfi);
@@ -1236,8 +1238,16 @@
                     NodeFilter.SHOW_TEXT,
                     {
                         acceptNode: function(node) {
-                            if (visRange.intersectsNode(node)) return NodeFilter.FILTER_ACCEPT;
-                            return NodeFilter.FILTER_REJECT;
+                            if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+                            // Check if node is explicitly hidden
+                            let parent = node.parentElement;
+                            if (parent && win) {
+                                const style = win.getComputedStyle(parent);
+                                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                                    return NodeFilter.FILTER_REJECT;
+                                }
+                            }
+                            return NodeFilter.FILTER_ACCEPT;
                         }
                     }
                 );
@@ -1274,6 +1284,9 @@
             }
         }
 
+        let currentTtsWordCfi = null;
+
+        // Smooth word-by-word highlight synced to speech charIndex
         function highlightTtsWord(charIndex, charLength) {
             const contents = rendition.getContents();
             if (!contents || !contents[0]) return;
@@ -1313,11 +1326,31 @@
                     hlRange.setEnd(lastMap.node, lastMap.nodeEnd);
                 }
                 
-                if (win.CSS && win.CSS.highlights) {
-                    const highlight = new win.Highlight(hlRange);
-                    win.CSS.highlights.set("tts-word", highlight);
-                } else {
+                try {
+                    // Try to scroll the highlight smoothly into view if out of bounds (prevent layout jump)
+                    const el = hlRange.startContainer.parentElement;
+                    if (el && typeof el.scrollIntoViewIfNeeded === 'function') {
+                        el.scrollIntoViewIfNeeded(false);
+                    } else if (el && typeof el.scrollIntoView === 'function') {
+                        const rect = el.getBoundingClientRect();
+                        if(rect.top < 0 || rect.bottom > win.innerHeight) el.scrollIntoView({behavior: "smooth", block: "nearest"});
+                    }
+                } catch(e) {}
+
+                try {
+                    if (win.CSS && win.CSS.highlights) {
+                        const highlight = new win.Highlight(hlRange);
+                        win.CSS.highlights.set("tts-word", highlight);
+                    } else {
+                        // Fallback completely to epubjs annotation if CSS.highlights is unavailable (fixes Android issues)
+                        const wordCfi = new ePub.CFI(hlRange, contents[0].cfiBase).toString();
+                        rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { fill: "#ffea00", "fill-opacity": "0.8", "mix-blend-mode": "multiply" });
+                        currentTtsWordCfi = wordCfi;
+                    }
+                } catch(e) {
+                    // Absolute fallback if everything fails
                     const sel = win.getSelection();
+                    sel.removeAllRanges();
                     sel.addRange(hlRange);
                 }
             }
@@ -1331,30 +1364,34 @@
             if (win.CSS && win.CSS.highlights) {
                 win.CSS.highlights.clear();
             }
-            win.getSelection().removeAllRanges();
+            if (currentTtsWordCfi) {
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
+                currentTtsWordCfi = null;
+            }
+            try { win.getSelection().removeAllRanges(); } catch(e){}
+        }
+
+        function applyTtsHighlight() {
+            const loc = rendition.currentLocation();
+            if (loc && loc.start && loc.end) {
+                try {
+                    ttsHighlightCfiRange = new ePub.CFI(loc.start.cfi, loc.end.cfi).toString();
+                    rendition.annotations.add('highlight', ttsHighlightCfiRange, {}, null, 'hl-tts', { fill: "#2196f3", "fill-opacity": "0.1", "mix-blend-mode": "multiply" });
+                } catch(e) { console.warn(e); }
+            }
+        }
+        
+        function removeTtsHighlight() {
+            if (ttsHighlightCfiRange) {
+                try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch(e) {}
+                ttsHighlightCfiRange = null;
+            }
+            clearTtsWordHighlight();
         }
 
         function ttsPlayPause() {
             const btn = document.getElementById('btn-tts-play');
             const icon = btn.querySelector('i');
-
-            const applyTtsHighlight = () => {
-                const loc = rendition.currentLocation();
-                if (loc && loc.start && loc.end) {
-                    try {
-                        ttsHighlightCfiRange = new ePub.CFI(loc.start.cfi, loc.end.cfi).toString();
-                        rendition.annotations.add('highlight', ttsHighlightCfiRange, {}, null, 'hl-tts', { fill: "#2196f3", "fill-opacity": "0.1" });
-                    } catch(e) { console.warn(e); }
-                }
-            };
-            
-            const removeTtsHighlight = () => {
-                if (ttsHighlightCfiRange) {
-                    try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch(e) {}
-                    ttsHighlightCfiRange = null;
-                }
-                clearTtsWordHighlight();
-            };
 
             // STRATEGY 1: REACT NATIVE BRIDGE
             if (window.ReactNativeWebView) {
@@ -1403,7 +1440,7 @@
                         const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
                         const defaultLength = wordMatch ? wordMatch[0].length : 1;
                         const validLength = e.charLength || defaultLength;
-                        highlightTtsWord(e.charIndex, validLength);
+                        requestAnimationFrame(() => highlightTtsWord(e.charIndex, validLength));
                     }
                 };
 
@@ -1424,6 +1461,25 @@
                 synth.speak(utter);
             }
         }
+
+        // --- RN Bridge Listeners ---
+        const handleBridgeMessage = (event) => {
+            try {
+                let data = event.data;
+                if (typeof data === 'string') data = JSON.parse(data);
+                
+                if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
+                    requestAnimationFrame(() => highlightTtsWord(data.charIndex, data.charLength || 5));
+                } else if (data.type === 'tts-stop' || data.type === 'tts-finish') {
+                    const icon = document.getElementById('btn-tts-play').querySelector('i');
+                    if (icon) icon.className = 'fas fa-play';
+                    isSpeakingBridge = false;
+                    removeTtsHighlight();
+                }
+            } catch (e) {}
+        };
+        window.addEventListener('message', handleBridgeMessage);
+        document.addEventListener('message', handleBridgeMessage);
 
         // Keep button icon in sync on visibility change
         document.addEventListener('visibilitychange', () => {
