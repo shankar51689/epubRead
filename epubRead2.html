@@ -1227,66 +1227,97 @@
             const loc = rendition.currentLocation();
             if (!loc || !loc.start || !loc.end) return null;
 
-            const contents = rendition.getContents();
-            if (!contents || !contents[0]) return null;
-            const win = contents[0].window;
+            const contentsList = rendition.getContents();
+            if (!contentsList || contentsList.length === 0) return null;
 
             try {
-                let rangeStart = rendition.getRange(loc.start.cfi);
-                let rangeEnd = rendition.getRange(loc.end.cfi);
+                // We need to determine which contents fall within the current visible location
+                for (let i = 0; i < contentsList.length; i++) {
+                    const contents = contentsList[i];
+                    const doc = contents.document;
+                    const win = contents.window;
 
-                let visRange = contents[0].document.createRange();
-                visRange.setStart(rangeStart.startContainer, rangeStart.startOffset);
-                visRange.setEnd(rangeEnd.endContainer, rangeEnd.endOffset);
+                    // Create a range for this document
+                    let docRange = doc.createRange();
+                    docRange.selectNodeContents(doc.body);
 
-                let walker = contents[0].document.createTreeWalker(
-                    visRange.commonAncestorContainer,
-                    NodeFilter.SHOW_TEXT,
-                    {
-                        acceptNode: function (node) {
-                            if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
-                            // Check if node is explicitly hidden
-                            let parent = node.parentElement;
-                            if (parent && win) {
-                                const style = win.getComputedStyle(parent);
-                                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-                                    return NodeFilter.FILTER_REJECT;
+                    // Get start/end CFI ranges
+                    let rangeStart, rangeEnd;
+                    try { rangeStart = rendition.getRange(loc.start.cfi); } catch (e) { }
+                    try { rangeEnd = rendition.getRange(loc.end.cfi); } catch (e) { }
+
+                    let startNode = docRange.startContainer;
+                    let startOffset = docRange.startOffset;
+                    let endNode = docRange.endContainer;
+                    let endOffset = docRange.endOffset;
+
+                    // If this doc is the start page
+                    if (rangeStart && doc.contains(rangeStart.startContainer)) {
+                        startNode = rangeStart.startContainer;
+                        startOffset = rangeStart.startOffset;
+                    }
+                    // If this doc is the end page
+                    if (rangeEnd && doc.contains(rangeEnd.endContainer)) {
+                        endNode = rangeEnd.endContainer;
+                        endOffset = rangeEnd.endOffset;
+                    }
+
+                    // Build the intersection range for this document
+                    let visRange = doc.createRange();
+                    try {
+                        visRange.setStart(startNode, startOffset);
+                        visRange.setEnd(endNode, endOffset);
+                    } catch (e) { continue; }
+
+                    if (visRange.collapsed) continue;
+
+                    let walker = doc.createTreeWalker(
+                        visRange.commonAncestorContainer,
+                        NodeFilter.SHOW_TEXT,
+                        {
+                            acceptNode: function (node) {
+                                if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+                                let parent = node.parentElement;
+                                if (parent && win) {
+                                    const style = win.getComputedStyle(parent);
+                                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                                        return NodeFilter.FILTER_REJECT;
+                                    }
                                 }
+                                return NodeFilter.FILTER_ACCEPT;
                             }
-                            return NodeFilter.FILTER_ACCEPT;
                         }
+                    );
+
+                    let node = walker.nextNode();
+                    if (!node && visRange.commonAncestorContainer.nodeType === 3) {
+                        node = visRange.commonAncestorContainer;
                     }
-                );
 
-                let node = walker.nextNode();
-                if (!node && visRange.commonAncestorContainer.nodeType === 3) {
-                    node = visRange.commonAncestorContainer;
-                }
+                    while (node) {
+                        let nodeStart = (node === visRange.startContainer) ? visRange.startOffset : 0;
+                        let nodeEnd = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
 
-                while (node) {
-                    let startMatch = (node === visRange.startContainer) ? visRange.startOffset : 0;
-                    let endMatch = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
-
-                    if (startMatch < endMatch) {
-                        let textPart = node.textContent.substring(startMatch, endMatch);
-                        ttsNodesMap.push({
-                            node: node,
-                            nodeStart: startMatch,
-                            nodeEnd: endMatch,
-                            textStart: ttsOriginalText.length,
-                            textEnd: ttsOriginalText.length + textPart.length
-                        });
-                        ttsOriginalText += textPart;
+                        if (nodeStart < nodeEnd) {
+                            let textPart = node.textContent.substring(nodeStart, nodeEnd);
+                            ttsNodesMap.push({
+                                node: node,
+                                nodeStart: nodeStart,
+                                nodeEnd: nodeEnd,
+                                textStart: ttsOriginalText.length,
+                                textEnd: ttsOriginalText.length + textPart.length
+                            });
+                            ttsOriginalText += textPart;
+                        }
+                        if (node === visRange.endContainer) break;
+                        node = walker.nextNode();
                     }
-                    if (node === visRange.endContainer) break;
-                    node = walker.nextNode();
                 }
 
                 return ttsOriginalText || null;
             } catch (e) {
                 console.warn(e);
-                if (contents && contents[0]) return contents[0].document.body.innerText;
-                return null;
+                return contentsList[0].document.body.innerText;
             }
         }
 
@@ -1484,10 +1515,10 @@
         }
 
         // --- RN Bridge Listeners ---
-        const handleBridgeMessage = (event) => {
+        window.handleTtsBridgeMessage = (data) => {
             try {
-                let data = event.data;
                 if (typeof data === 'string') data = JSON.parse(data);
+                if (!data || !data.type) return;
 
                 if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
                     const currentObj = globalTtsQueue[globalTtsIndex];
@@ -1503,6 +1534,13 @@
                     isTtsMode = false;
                     removeTtsHighlight();
                 }
+            } catch (e) { console.error("Bridge Error:", e); }
+        };
+
+        const handleBridgeMessage = (event) => {
+            try {
+                let data = event.data;
+                if (window.handleTtsBridgeMessage) window.handleTtsBridgeMessage(data);
             } catch (e) { }
         };
         window.addEventListener('message', handleBridgeMessage);
