@@ -869,21 +869,21 @@
                     if (document.activeElement !== noteInput) hideHighlightMenu();
 
                     // STOP TTS ON PAGE CHANGE (Bridge & Native)
-                    if (window.ReactNativeWebView && isSpeakingBridge) {
+                    isTtsMode = false;
+                    globalTtsQueue = [];
+                    globalTtsIndex = 0;
+
+                    if (window.ReactNativeWebView) {
                         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
                         isSpeakingBridge = false;
-                        const icon = btnTtsPlay.querySelector('i');
-                        if (icon) icon.className = 'fas fa-play';
-                    } else if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
-                        window.speechSynthesis.cancel();
-                        const icon = btnTtsPlay.querySelector('i');
-                        if (icon) icon.className = 'fas fa-play';
+                    } 
+                    if (window.speechSynthesis) {
+                        try { window.speechSynthesis.cancel(); } catch(e) {}
                     }
+                    const icon = btnTtsPlay.querySelector('i');
+                    if (icon) icon.className = 'fas fa-play';
 
-                    if (ttsHighlightCfiRange) {
-                        try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch (e) { }
-                        ttsHighlightCfiRange = null;
-                    }
+                    try { removeTtsHighlight(); } catch(e) {}
 
                     // Update Page Counter
                     try {
