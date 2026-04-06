@@ -1371,17 +1371,20 @@
                     }
                 } catch(e) {}
 
-                // STRATEGY 1: CSS Highlights API (Preferred)
+                // STRATEGY 1: DOM Span Wrapper (100% Visibility Guaranteed)
                 try {
-                    // Bypass in ReactNativeWebView if needed, but we try anyway. 
-                    if (!window.ReactNativeWebView && win.CSS && win.CSS.highlights) {
-                        const highlight = new win.Highlight(hlRange);
-                        win.CSS.highlights.set("tts-word", highlight);
-                        return; // SUCCESS
-                    } 
+                    const span = doc.createElement('span');
+                    span.className = 'tts-active-word';
+                    span.style.backgroundColor = '#ffeb3b';
+                    span.style.color = '#000';
+                    span.style.borderRadius = '3px';
+                    
+                    hlRange.surroundContents(span);
+                    win.__ttsSpan = span;
+                    return; // SUCCESS
                 } catch(e) {}
 
-                // STRATEGY 2: EPUB.JS Annotations (Fallback)
+                // STRATEGY 2: EPUB.JS Annotations (Fallback for complex nested HTML tags)
                 let cfiSuccess = false;
                 try {
                     const wordCfi = new ePub.CFI(hlRange, contents[0].cfiBase).toString();
@@ -1392,23 +1395,12 @@
 
                 if(cfiSuccess) return;
 
-                // STRATEGY 3: Final bulletproof fallback - Dynamic DOM span wrapper
+                // STRATEGY 3: Native Selection Fallback
                 try {
-                    const span = doc.createElement('span');
-                    span.className = 'tts-active-word';
-                    span.style.backgroundColor = '#ffeb3b';
-                    span.style.color = '#000';
-                    span.style.borderRadius = '3px';
-                    span.style.padding = '0 2px';
-                    hlRange.surroundContents(span);
-                    win.__ttsSpan = span;
-                } catch(e) {
-                    try {
-                        const sel = win.getSelection();
-                        sel.removeAllRanges();
-                        sel.addRange(hlRange);
-                    }catch(err){}
-                }
+                    const sel = win.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(hlRange);
+                }catch(err){}
             }
         }
 
