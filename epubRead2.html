@@ -850,12 +850,13 @@
                     if (document.activeElement !== noteInput) hideHighlightMenu();
 
                     // STOP TTS ON PAGE CHANGE
+                    // Reset TTS State for the new page
+                    globalTtsQueue = [];
+                    globalTtsIndex = 0;
+                    try { removeTtsHighlight(); } catch (e) { }
+
                     if (isTtsMode) {
                         isTtsMode = false;
-                        globalTtsQueue = [];
-                        globalTtsIndex = 0;
-                        try { removeTtsHighlight(); } catch (e) { }
-
                         const icon = btnTtsPlay.querySelector('i');
                         if (icon) icon.className = 'fas fa-play';
 
@@ -1243,7 +1244,7 @@
                     NodeFilter.SHOW_TEXT,
                     {
                         acceptNode: function (node) {
-                            if (!visRange.intersectNode(node)) return NodeFilter.FILTER_REJECT;
+                            if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
                             // Check if node is explicitly hidden
                             let parent = node.parentElement;
                             if (parent && win) {
