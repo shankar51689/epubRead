@@ -666,6 +666,7 @@
         // TTS State (Browser Fallback)
         let isTtsMode = false;
         let ttsQueue = [];
+        let ttsHighlightCfiRange = null;
 
         const peel = document.getElementById('page-peel');
         const peelGrad = document.getElementById('peel-gradient');
@@ -737,6 +738,7 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: rgba(33, 150, 243, 0.3) !important; }
+                    .hl-tts { fill: #2196f3 !important; fill-opacity: 0.3 !important; pointer-events: none !important; }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -856,6 +858,11 @@
                         window.speechSynthesis.cancel();
                         const icon = btnTtsPlay.querySelector('i');
                         if (icon) icon.className = 'fas fa-play';
+                    }
+                    
+                    if (ttsHighlightCfiRange) {
+                        try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch(e) {}
+                        ttsHighlightCfiRange = null;
                     }
 
                     // Update Page Counter
@@ -1225,6 +1232,23 @@
             const btn = document.getElementById('btn-tts-play');
             const icon = btn.querySelector('i');
 
+            const applyTtsHighlight = () => {
+                const loc = rendition.currentLocation();
+                if (loc && loc.start && loc.end) {
+                    try {
+                        ttsHighlightCfiRange = new ePub.CFI(loc.start.cfi, loc.end.cfi).toString();
+                        rendition.annotations.add('highlight', ttsHighlightCfiRange, {}, null, 'hl-tts', { fill: "#2196f3", "fill-opacity": "0.3" });
+                    } catch(e) { console.warn(e); }
+                }
+            };
+            
+            const removeTtsHighlight = () => {
+                if (ttsHighlightCfiRange) {
+                    try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch(e) {}
+                    ttsHighlightCfiRange = null;
+                }
+            };
+
             // STRATEGY 1: REACT NATIVE BRIDGE
             if (window.ReactNativeWebView) {
                 if (isSpeakingBridge) {
@@ -1232,6 +1256,7 @@
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
                     isSpeakingBridge = false;
                     icon.className = 'fas fa-play'; // Update UI
+                    removeTtsHighlight();
                     showNotification("Paused");
                 } else {
                     // User wants to SPEAK
@@ -1241,6 +1266,7 @@
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: text }));
                     isSpeakingBridge = true;
                     icon.className = 'fas fa-pause'; // Update UI
+                    applyTtsHighlight();
                     showNotification("Reading...");
                 }
                 return;
@@ -1265,11 +1291,19 @@
                 if (!text) { showNotification("No visible text"); return; }
 
                 const utter = new SpeechSynthesisUtterance(text);
-                utter.onstart = () => { icon.className = 'fas fa-pause'; showNotification("Reading..."); };
-                utter.onend = () => { icon.className = 'fas fa-play'; };
+                utter.onstart = () => { 
+                    icon.className = 'fas fa-pause'; 
+                    applyTtsHighlight();
+                    showNotification("Reading..."); 
+                };
+                utter.onend = () => { 
+                    icon.className = 'fas fa-play'; 
+                    removeTtsHighlight();
+                };
                 utter.onerror = (e) => {
                     if (e.error !== 'canceled') console.error(e);
                     icon.className = 'fas fa-play';
+                    removeTtsHighlight();
                 };
                 synth.speak(utter);
             }
@@ -1564,18 +1598,54 @@
         function triggerNext() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); }; animate(); }
         function triggerPrev() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); }; animate(); }
 
+        let initialPinchDistance = null;
+        let isPinching = false;
+
+        function getPinchDistance(touches) {
+            return Math.hypot(
+                touches[0].screenX - touches[1].screenX,
+                touches[0].screenY - touches[1].screenY
+            );
+        }
+
         function setupGestures() {
             rendition.on("touchstart", e => {
                 if (isHighlightMode) return;
-                startX = e.changedTouches[0].screenX;
-                isDragging = true;
-                width = window.innerWidth;
-                peel.style.transition = 'none';
-                dropShadow.style.transition = 'none';
+                
+                if (e.touches && e.touches.length === 2) {
+                    isPinching = true;
+                    isDragging = false;
+                    initialPinchDistance = getPinchDistance(e.touches);
+                    return;
+                }
+                
+                if (e.touches && e.touches.length === 1) {
+                    startX = e.changedTouches[0].screenX;
+                    isDragging = true;
+                    isPinching = false;
+                    width = window.innerWidth;
+                    peel.style.transition = 'none';
+                    dropShadow.style.transition = 'none';
+                }
             });
 
             rendition.on("touchmove", e => {
-                if (isHighlightMode || !isDragging) return;
+                if (isHighlightMode) return;
+                
+                if (isPinching && e.touches && e.touches.length === 2) {
+                    if (e.preventDefault) e.preventDefault();
+                    const currentDistance = getPinchDistance(e.touches);
+                    const diff = currentDistance - initialPinchDistance;
+                    
+                    if (Math.abs(diff) > 40) {
+                        if (diff > 0) changeFontSize(10);
+                        else changeFontSize(-10);
+                        initialPinchDistance = currentDistance;
+                    }
+                    return;
+                }
+
+                if (!isDragging || isPinching) return;
                 if (e.preventDefault) e.preventDefault();
                 const diff = startX - e.changedTouches[0].screenX;
                 if (diff > 0) updatePeelNext(diff);
@@ -1583,7 +1653,14 @@
             });
 
             rendition.on("touchend", e => {
-                if (isHighlightMode || !isDragging) return;
+                if (isHighlightMode) return;
+                
+                if (isPinching) {
+                    if (!e.touches || e.touches.length < 2) isPinching = false;
+                    return;
+                }
+
+                if (!isDragging) return;
                 isDragging = false;
                 const diff = startX - e.changedTouches[0].screenX;
                 if (diff > 100) finishNext();
