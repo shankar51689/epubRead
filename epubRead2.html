@@ -737,8 +737,9 @@
                     .hl-yellow { fill: #ffeb3b !important; }
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
-                    ::selection { background: rgba(33, 150, 243, 0.3) !important; }
-                    .hl-tts { fill: #2196f3 !important; fill-opacity: 0.3 !important; pointer-events: none !important; }
+                    ::selection { background: #ffeb3b !important; color: #000 !important; }
+                    .hl-tts { fill: #2196f3 !important; fill-opacity: 0.1 !important; pointer-events: none !important; }
+                    ::highlight(tts-word) { background-color: #ffeb3b; color: #000; }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1210,22 +1211,127 @@
 
         /* --- TTS (Text To Speech) with React Native Bridge --- */
 
+        let ttsNodesMap = [];
+        let ttsOriginalText = "";
+
         function getVisibleText() {
+            ttsNodesMap = [];
+            ttsOriginalText = "";
             const loc = rendition.currentLocation();
             if (!loc || !loc.start || !loc.end) return null;
+            
+            const contents = rendition.getContents();
+            if (!contents || !contents[0]) return null;
+            
             try {
-                const rangeStart = rendition.getRange(loc.start.cfi);
-                const rangeEnd = rendition.getRange(loc.end.cfi);
-                const range = document.createRange();
-                range.setStart(rangeStart.startContainer, rangeStart.startOffset);
-                range.setEnd(rangeEnd.endContainer, rangeEnd.endOffset);
-                let text = range.toString().replace(/\s+/g, ' ').trim();
-                return text || null;
+                let rangeStart = rendition.getRange(loc.start.cfi);
+                let rangeEnd = rendition.getRange(loc.end.cfi);
+                
+                let visRange = contents[0].document.createRange();
+                visRange.setStart(rangeStart.startContainer, rangeStart.startOffset);
+                visRange.setEnd(rangeEnd.endContainer, rangeEnd.endOffset);
+                
+                let walker = contents[0].document.createTreeWalker(
+                    visRange.commonAncestorContainer,
+                    NodeFilter.SHOW_TEXT,
+                    {
+                        acceptNode: function(node) {
+                            if (visRange.intersectsNode(node)) return NodeFilter.FILTER_ACCEPT;
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                    }
+                );
+                
+                let node = walker.nextNode();
+                if (!node && visRange.commonAncestorContainer.nodeType === 3) {
+                    node = visRange.commonAncestorContainer;
+                }
+
+                while (node) {
+                    let startMatch = (node === visRange.startContainer) ? visRange.startOffset : 0;
+                    let endMatch = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
+                    
+                    if (startMatch < endMatch) {
+                        let textPart = node.textContent.substring(startMatch, endMatch);
+                        ttsNodesMap.push({
+                            node: node,
+                            nodeStart: startMatch,
+                            nodeEnd: endMatch,
+                            textStart: ttsOriginalText.length,
+                            textEnd: ttsOriginalText.length + textPart.length
+                        });
+                        ttsOriginalText += textPart;
+                    }
+                    if (node === visRange.endContainer) break;
+                    node = walker.nextNode();
+                }
+                
+                return ttsOriginalText || null;
             } catch (e) {
-                const contents = rendition.getContents();
-                if (contents && contents[0]) return contents[0].document.body.innerText.replace(/\s+/g, ' ').trim();
+                console.warn(e);
+                if (contents && contents[0]) return contents[0].document.body.innerText;
                 return null;
             }
+        }
+
+        function highlightTtsWord(charIndex, charLength) {
+            const contents = rendition.getContents();
+            if (!contents || !contents[0]) return;
+            const doc = contents[0].document;
+            const win = contents[0].window;
+            
+            clearTtsWordHighlight();
+            if (ttsNodesMap.length === 0) return;
+            
+            const hlRange = doc.createRange();
+            let startSet = false;
+            let endSet = false;
+            
+            let targetStart = charIndex;
+            let targetEnd = charIndex + charLength;
+            
+            for (let i = 0; i < ttsNodesMap.length; i++) {
+                let map = ttsNodesMap[i];
+                
+                if (!startSet && targetStart >= map.textStart && targetStart < map.textEnd) {
+                    let offsetInNode = map.nodeStart + (targetStart - map.textStart);
+                    hlRange.setStart(map.node, offsetInNode);
+                    startSet = true;
+                }
+                
+                if (targetEnd > map.textStart && targetEnd <= map.textEnd) {
+                    let offsetInNode = map.nodeStart + (targetEnd - map.textStart);
+                    hlRange.setEnd(map.node, offsetInNode);
+                    endSet = true;
+                    break;
+                }
+            }
+            
+            if (startSet) {
+                if (!endSet) {
+                    const lastMap = ttsNodesMap[ttsNodesMap.length - 1];
+                    hlRange.setEnd(lastMap.node, lastMap.nodeEnd);
+                }
+                
+                if (win.CSS && win.CSS.highlights) {
+                    const highlight = new win.Highlight(hlRange);
+                    win.CSS.highlights.set("tts-word", highlight);
+                } else {
+                    const sel = win.getSelection();
+                    sel.addRange(hlRange);
+                }
+            }
+        }
+        
+        function clearTtsWordHighlight() {
+            const contents = rendition.getContents();
+            if (!contents || !contents[0]) return;
+            const win = contents[0].window;
+            
+            if (win.CSS && win.CSS.highlights) {
+                win.CSS.highlights.clear();
+            }
+            win.getSelection().removeAllRanges();
         }
 
         function ttsPlayPause() {
@@ -1237,7 +1343,7 @@
                 if (loc && loc.start && loc.end) {
                     try {
                         ttsHighlightCfiRange = new ePub.CFI(loc.start.cfi, loc.end.cfi).toString();
-                        rendition.annotations.add('highlight', ttsHighlightCfiRange, {}, null, 'hl-tts', { fill: "#2196f3", "fill-opacity": "0.3" });
+                        rendition.annotations.add('highlight', ttsHighlightCfiRange, {}, null, 'hl-tts', { fill: "#2196f3", "fill-opacity": "0.1" });
                     } catch(e) { console.warn(e); }
                 }
             };
@@ -1247,25 +1353,24 @@
                     try { rendition.annotations.remove(ttsHighlightCfiRange, 'highlight'); } catch(e) {}
                     ttsHighlightCfiRange = null;
                 }
+                clearTtsWordHighlight();
             };
 
             // STRATEGY 1: REACT NATIVE BRIDGE
             if (window.ReactNativeWebView) {
                 if (isSpeakingBridge) {
-                    // User wants to STOP/PAUSE
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-stop' }));
                     isSpeakingBridge = false;
-                    icon.className = 'fas fa-play'; // Update UI
+                    icon.className = 'fas fa-play';
                     removeTtsHighlight();
                     showNotification("Paused");
                 } else {
-                    // User wants to SPEAK
                     const text = getVisibleText();
                     if (!text) { showNotification("No text found"); return; }
 
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: text }));
                     isSpeakingBridge = true;
-                    icon.className = 'fas fa-pause'; // Update UI
+                    icon.className = 'fas fa-pause';
                     applyTtsHighlight();
                     showNotification("Reading...");
                 }
@@ -1291,6 +1396,17 @@
                 if (!text) { showNotification("No visible text"); return; }
 
                 const utter = new SpeechSynthesisUtterance(text);
+                
+                utter.onboundary = (e) => {
+                    if (e.name === 'word') {
+                        const textRemainder = utter.text.substring(e.charIndex);
+                        const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
+                        const defaultLength = wordMatch ? wordMatch[0].length : 1;
+                        const validLength = e.charLength || defaultLength;
+                        highlightTtsWord(e.charIndex, validLength);
+                    }
+                };
+
                 utter.onstart = () => { 
                     icon.className = 'fas fa-pause'; 
                     applyTtsHighlight();
