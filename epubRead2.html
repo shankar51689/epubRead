@@ -1286,17 +1286,12 @@
 
         let globalTtsQueue = [];
         let globalTtsIndex = 0;
+        let currentTtsWordCfi = null;
 
         function clearTtsWordHighlight() {
-            const contentsList = rendition.getContents();
-            if(!contentsList || contentsList.length === 0) return;
-
-            for (let contents of contentsList) {
-                const win = contents.window;
-                if (win && win.CSS && win.CSS.highlights) {
-                    try { win.CSS.highlights.clear(); } catch(e){}
-                }
-                try { win.getSelection().removeAllRanges(); } catch(e){}
+            if (currentTtsWordCfi) {
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch(e){}
+                currentTtsWordCfi = null;
             }
         }
 
@@ -1353,28 +1348,24 @@
                     }
                 } catch(e) {}
 
-                // EXTREME PERFORMANCE UPDATE (Bypasses laggy EPUB CFD calculations)
-                if(!doc.__ttsStylesLoaded) {
-                     const style = doc.createElement('style');
-                     style.innerHTML = `::highlight(tts-word) { background-color: #ffeb3b !important; color: #000 !important; } ::selection { background-color: #ffeb3b !important; color: #000 !important; }`;
-                     doc.head.appendChild(style);
-                     doc.__ttsStylesLoaded = true;
-                }
-
+                // STRATEGY: Native EPUB.js Annotations (GUARANTEED visible in WebView)
                 try {
-                    if (win.CSS && win.CSS.highlights) {
-                        const highlight = new win.Highlight(hlRange);
-                        win.CSS.highlights.set("tts-word", highlight);
-                        return; // Zero CPU Cost Highlights
+                    let contentsList = rendition.getContents();
+                    let targetContent = contentsList[0];
+                    for(let c of contentsList) {
+                        if(c.document === doc) { targetContent = c; break; }
                     }
+
+                    const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
+
+                    rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", { 
+                        fill: "#ffeb3b", 
+                        "fill-opacity": "0.6", 
+                        "mix-blend-mode": "multiply" 
+                    });
+                    
+                    currentTtsWordCfi = wordCfi;
                 } catch(e) {}
-                
-                // Fallback to Lightning-Fast native text-selector hook (visibly identically styling injected above via CSS)
-                try {
-                    const sel = win.getSelection();
-                    sel.removeAllRanges();
-                    sel.addRange(hlRange);
-                } catch(err){}
             }
         }
 
