@@ -592,6 +592,17 @@
             z-index: 25;
             opacity: 0.7;
         }
+    /* TTS word highlight overlay – floats over the iframe word */
+    #tts-word-overlay {
+        position: fixed;
+        pointer-events: none;
+        z-index: 9999;
+        background: rgba(241, 196, 15, 0.55);
+        border-radius: 3px;
+        box-shadow: 0 0 0 2px rgba(241, 196, 15, 0.8);
+        display: none;
+        transition: none;
+    }
     </style>
 </head>
 
@@ -653,6 +664,8 @@
             <button class="hl-btn hl-delete" id="btn-remove-hl" onclick="deleteCurrentHighlight()">Remove</button>
         </div>
     </div>
+
+    <div id="tts-word-overlay"></div>
 
     <div id="loading">Loading Book...</div>
     <div id="notification">Notification</div>
@@ -761,18 +774,6 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
-                    .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.9 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
-                    ::highlight(tts-word) { background-color: #f1c40f !important; color: #000 !important; font-weight: bold !important; }
-                    mark.tts-word-mark {
-                        background: #f1c40f !important;
-                        color: inherit !important;
-                        border-radius: 3px !important;
-                        padding: 0 1px !important;
-                        box-shadow: 0 0 0 2px #f1c40f !important;
-                        font-weight: bold !important;
-                        -webkit-box-decoration-break: clone;
-                        box-decoration-break: clone;
-                    }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1400,47 +1401,22 @@
             } catch (e) { return null; }
         }
 
-        // Holds reference to the live <mark> element injected into the iframe
-        let _ttsMarkEl = null;
-        let _ttsMarkOrigNode = null;
-        let _ttsMarkOrigOffset = 0;
-        let _ttsMarkEndOffset = 0;
+        // ── Floating overlay approach: NO DOM surgery, NO audio disturbance ──
+        const _ttsOverlay = document.getElementById('tts-word-overlay');
 
         function clearTtsWordHighlight() {
-            // Remove previously injected <mark> and restore original text node
-            if (_ttsMarkEl && _ttsMarkEl.parentNode) {
-                try {
-                    const parent = _ttsMarkEl.parentNode;
-                    // Put the original text back
-                    const originalText = _ttsMarkEl.textContent;
-                    const textNode = _ttsMarkEl.ownerDocument.createTextNode(originalText);
-                    parent.replaceChild(textNode, _ttsMarkEl);
-                    parent.normalize(); // merge adjacent text nodes
-                } catch (e) { }
-            }
-            _ttsMarkEl = null;
-            _ttsMarkOrigNode = null;
-
-            // Also clean EPUB annotation fallback if used
-            if (currentTtsWordCfi && currentTtsWordCfi !== 'dom-mark') {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
-            }
+            if (_ttsOverlay) _ttsOverlay.style.display = 'none';
             currentTtsWordCfi = null;
         }
 
         function highlightTtsWord(charIndex, charLength) {
-            clearTtsWordHighlight();
-
             if (ttsNodesMap.length === 0) return;
 
-            // Find the text node and offset
-            let targetStart = charIndex;
-            let targetEnd   = charIndex + charLength;
-
-            let startNode   = null;
-            let startOffset = 0;
-            let endNode     = null;
-            let endOffset   = 0;
+            // Find the matching text node and offsets
+            let startNode = null, startOffset = 0;
+            let endNode = null, endOffset = 0;
+            const targetStart = charIndex;
+            const targetEnd   = charIndex + charLength;
 
             for (let i = 0; i < ttsNodesMap.length; i++) {
                 const map = ttsNodesMap[i];
@@ -1456,54 +1432,50 @@
             }
 
             if (!startNode) return;
+
+            // Clamp end within same node if needed
             if (!endNode || endNode !== startNode) {
-                // Keep highlight within a single text node to make DOM surgery safe
                 endNode   = startNode;
                 endOffset = Math.min(startOffset + charLength, startNode.textContent.length);
             }
 
-            // ── DOM injection approach (works everywhere, including RN WebView) ──
             try {
-                const doc    = startNode.ownerDocument;
-                const parent = startNode.parentNode;
-                if (!parent) return;
+                const doc = startNode.ownerDocument;
 
-                // Split the text node: [before][WORD][after]
-                const fullText  = startNode.textContent;
-                const before    = fullText.substring(0, startOffset);
-                const wordText  = fullText.substring(startOffset, endOffset);
-                const after     = fullText.substring(endOffset);
+                // Build a Range (no DOM mutation – read-only use)
+                const range = doc.createRange();
+                range.setStart(startNode, startOffset);
+                range.setEnd(endNode, endOffset);
 
-                if (!wordText.trim()) return; // skip whitespace-only
+                const wordRect = range.getBoundingClientRect();
+                if (!wordRect || wordRect.width === 0) return;
 
-                const mark = doc.createElement('mark');
-                mark.className = 'tts-word-mark';
-                mark.textContent = wordText;
-
-                // Replace the original text node with [before + mark + after]
-                const beforeNode = doc.createTextNode(before);
-                const afterNode  = doc.createTextNode(after);
-
-                parent.insertBefore(beforeNode, startNode);
-                parent.insertBefore(mark, startNode);
-                parent.insertBefore(afterNode, startNode);
-                parent.removeChild(startNode);
-
-                _ttsMarkEl = mark;
-                _ttsMarkOrigNode = startNode;
-                currentTtsWordCfi = 'dom-mark';
-
-                // Scroll into view if needed
+                // Find the iframe element so we can offset into the host page
+                let iframeOffsetX = 0, iframeOffsetY = 0;
                 try {
-                    const win  = doc.defaultView;
-                    const rect = mark.getBoundingClientRect();
-                    if (rect.top < 0 || rect.bottom > win.innerHeight) {
-                        mark.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    const iframes = document.querySelectorAll('#viewer iframe');
+                    for (const iframe of iframes) {
+                        if (iframe.contentDocument === doc) {
+                            const iframeRect = iframe.getBoundingClientRect();
+                            iframeOffsetX = iframeRect.left;
+                            iframeOffsetY = iframeRect.top;
+                            break;
+                        }
                     }
                 } catch (e) { }
 
+                // Position the overlay
+                const ol = _ttsOverlay;
+                ol.style.left   = (iframeOffsetX + wordRect.left)   + 'px';
+                ol.style.top    = (iframeOffsetY + wordRect.top)    + 'px';
+                ol.style.width  = wordRect.width  + 'px';
+                ol.style.height = wordRect.height + 'px';
+                ol.style.display = 'block';
+
+                currentTtsWordCfi = 'overlay';
+
             } catch (e) {
-                console.warn('tts mark error', e);
+                console.warn('tts overlay error', e);
             }
         }
 
