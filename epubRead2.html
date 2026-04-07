@@ -1407,23 +1407,29 @@
                 }
             } catch (e) { }
 
-            // Reliable WebView Highlighting using EPUB.js Annotations
+            // Standard Highlight Injection (Maximum compatibility)
             try {
                 let contentsList = rendition.getContents();
+                let doc = hlRange.startContainer.ownerDocument;
                 let targetContent = contentsList.find(c => c.document === doc) || contentsList[0];
                 
-                // Use robust CFI generation
-                const wordCfi = targetContent.cfiFromRange(hlRange);
+                // Manual CFI generation is often more reliable in older epub.js versions
+                const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
+
                 if (!wordCfi) return;
 
-                rendition.annotations.add("active-word", wordCfi, {}, null, "hl-tts-word");
+                rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
+                    fill: "#ffeb3b",
+                    "fill-opacity": "0.8",
+                    "mix-blend-mode": "multiply"
+                });
                 currentTtsWordCfi = wordCfi;
             } catch (e) { }
         }
 
         function clearTtsWordHighlight() {
             if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'active-word'); } catch (e) { }
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
                 currentTtsWordCfi = null;
             }
         }
