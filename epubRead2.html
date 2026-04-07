@@ -774,6 +774,8 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
+                    .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.85 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
+                    .hl-tts-sentence { fill: #2196f3 !important; fill-opacity: 0.25 !important; pointer-events: none !important; }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1261,104 +1263,50 @@
         let ttsNodesMap = [];
         let ttsOriginalText = "";
 
-        // Extracts visible text accurately, avoiding hidden elements
+        // Extracts ALL visible text from the current epub iframe - simple and reliable in RN WebView
         function getVisibleText() {
             ttsNodesMap = [];
             ttsOriginalText = "";
-            const loc = rendition.currentLocation();
-            if (!loc || !loc.start || !loc.end) return null;
 
             const contentsList = rendition.getContents();
             if (!contentsList || contentsList.length === 0) return null;
 
             try {
-                // We need to determine which contents fall within the current visible location
-                for (let i = 0; i < contentsList.length; i++) {
-                    const contents = contentsList[i];
+                for (const contents of contentsList) {
                     const doc = contents.document;
                     const win = contents.window;
+                    if (!doc || !doc.body) continue;
 
-                    // Create a range for this document
-                    let docRange = doc.createRange();
-                    docRange.selectNodeContents(doc.body);
+                    // Walk every text node in the body
+                    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null, false);
+                    let node;
+                    while ((node = walker.nextNode())) {
+                        const parent = node.parentElement;
+                        if (!parent) continue;
 
-                    // Get start/end CFI ranges
-                    let rangeStart, rangeEnd;
-                    try { rangeStart = rendition.getRange(loc.start.cfi); } catch (e) { }
-                    try { rangeEnd = rendition.getRange(loc.end.cfi); } catch (e) { }
+                        // Skip hidden elements
+                        try {
+                            const st = win.getComputedStyle(parent);
+                            if (st.display === 'none' || st.visibility === 'hidden') continue;
+                        } catch (_) {}
 
-                    let startNode = docRange.startContainer;
-                    let startOffset = docRange.startOffset;
-                    let endNode = docRange.endContainer;
-                    let endOffset = docRange.endOffset;
+                        const text = node.textContent;
+                        if (!text || text.trim().length === 0) continue;
 
-                    // If this doc is the start page
-                    if (rangeStart && doc.contains(rangeStart.startContainer)) {
-                        startNode = rangeStart.startContainer;
-                        startOffset = rangeStart.startOffset;
-                    }
-                    // If this doc is the end page
-                    if (rangeEnd && doc.contains(rangeEnd.endContainer)) {
-                        endNode = rangeEnd.endContainer;
-                        endOffset = rangeEnd.endOffset;
-                    }
-
-                    // Build the intersection range for this document
-                    let visRange = doc.createRange();
-                    try {
-                        visRange.setStart(startNode, startOffset);
-                        visRange.setEnd(endNode, endOffset);
-                    } catch (e) { continue; }
-
-                    if (visRange.collapsed) continue;
-
-                    let walker = doc.createTreeWalker(
-                        visRange.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {
-                            acceptNode: function (node) {
-                                if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
-                                let parent = node.parentElement;
-                                if (parent && win) {
-                                    const style = win.getComputedStyle(parent);
-                                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-                                        return NodeFilter.FILTER_REJECT;
-                                    }
-                                }
-                                return NodeFilter.FILTER_ACCEPT;
-                            }
-                        }
-                    );
-
-                    let node = walker.nextNode();
-                    if (!node && visRange.commonAncestorContainer.nodeType === 3) {
-                        node = visRange.commonAncestorContainer;
-                    }
-
-                    while (node) {
-                        let nodeStart = (node === visRange.startContainer) ? visRange.startOffset : 0;
-                        let nodeEnd = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
-
-                        if (nodeStart < nodeEnd) {
-                            let textPart = node.textContent.substring(nodeStart, nodeEnd);
-                            ttsNodesMap.push({
-                                node: node,
-                                nodeStart: nodeStart,
-                                nodeEnd: nodeEnd,
-                                textStart: ttsOriginalText.length,
-                                textEnd: ttsOriginalText.length + textPart.length
-                            });
-                            ttsOriginalText += textPart;
-                        }
-                        if (node === visRange.endContainer) break;
-                        node = walker.nextNode();
+                        ttsNodesMap.push({
+                            node:      node,
+                            nodeStart: 0,
+                            nodeEnd:   text.length,
+                            textStart: ttsOriginalText.length,
+                            textEnd:   ttsOriginalText.length + text.length
+                        });
+                        ttsOriginalText += text;
                     }
                 }
-
                 return ttsOriginalText || null;
             } catch (e) {
-                console.warn(e);
-                return contentsList[0].document.body.innerText;
+                console.warn('getVisibleText error', e);
+                try { return contentsList[0].document.body.innerText; } catch (_) { return null; }
             }
         }
 
@@ -1452,15 +1400,20 @@
                 range.setStart(startNode, startOffset);
                 range.setEnd(endNode, endOffset);
 
-                // ── Step 3: convert to CFI (same as epubReader3's highlightTtsSentence) ──
+                // ── Step 3: convert to CFI ──
                 let contentsList = rendition.getContents();
                 let targetContent = contentsList[0];
-                for (let c of contentsList) {
+                for (const c of contentsList) {
                     if (c.document === doc) { targetContent = c; break; }
                 }
+
+                // Use unique key to avoid duplicate-annotation conflict
                 const wordCfi = new ePub.CFI(range, targetContent.cfiBase).toString();
 
-                // ── Step 4: add annotation — bright yellow, high opacity ──
+                // Remove any existing annotation with same CFI first (epub.js throws if duplicate)
+                try { rendition.annotations.remove(wordCfi, 'highlight'); } catch (_) {}
+
+                // ── Step 4: add annotation — bright yellow ──
                 rendition.annotations.add('highlight', wordCfi, {}, null, 'hl-tts-word', {
                     fill: '#f1c40f',
                     'fill-opacity': '0.85',
