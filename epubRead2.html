@@ -69,24 +69,34 @@
 
         @media screen and (orientation: landscape) {
             #toolbar {
-                height: 46px;
-                padding: 4px 12px;
+                height: 48px;
+                padding: 4px 16px;
+                background: #2c2c2c; /* More premium dark grey */
             }
 
             #toolbar button {
                 width: 34px;
                 height: 34px;
                 font-size: 14px;
+                background: rgba(255,255,255,0.05);
             }
 
             .helper-text {
                 display: none;
             }
 
+            #book-viewport {
+                background: #121212; /* Darker outer background */
+                padding: 15px 40px; /* Force pages to not touch edges */
+            }
+
             #viewer {
-                /* Add a bit of breathing room at the top/bottom */
-                padding-top: 5px;
-                padding-bottom: 5px;
+                /* Inner rounded shadow for "book on desk" feel */
+                box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+                border-radius: 4px;
+                height: calc(100% - 10px);
+                width: 100%;
+                position: relative;
             }
         }
 
@@ -579,18 +589,20 @@
 
         #page-counter {
             position: absolute;
-            bottom: 12px;
+            bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.4);
-            color: #fff;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 12px;
+            background: rgba(0, 0, 0, 0.25);
+            color: #555;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
             font-family: sans-serif;
             pointer-events: none;
-            z-index: 25;
-            opacity: 0.7;
+            z-index: 200;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0,0,0,0.05);
         }
     </style>
 </head>
@@ -598,30 +610,26 @@
 <body>
 
     <div id="toolbar">
-        <div class="toolbar-group group-meta">
-            <div style="display:flex; gap:8px;">
-                <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
-                <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i
-                        class="fas fa-bookmark"></i></button>
-                <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i
-                        class="fas fa-highlighter"></i></button>
-                <button onclick="ttsPlayPause()" id="btn-tts-play" title="Read Page"><i
-                        class="fas fa-play"></i></button>
-            </div>
-            <div class="search-container" id="search-container">
+        <div class="toolbar-group group-left">
+            <button onclick="toggleSidebar()" title="Library"><i class="fas fa-bars"></i></button>
+            <button onclick="saveBookmark()" id="btn-bookmark" title="Bookmark"><i class="fas fa-bookmark"></i></button>
+            <button onclick="toggleHighlightMode()" id="btn-highlight" title="Highlight Tool"><i class="fas fa-highlighter"></i></button>
+            <button onclick="ttsPlayPause()" id="btn-tts-play" title="Read Page"><i class="fas fa-play"></i></button>
+            <div class="search-container" id="search-container" style="display:inline-flex">
                 <input type="text" id="search-input" placeholder="Search..." onkeydown="handleSearch(event)">
                 <button onclick="toggleSearch()" title="Search"><i class="fas fa-search"></i></button>
             </div>
         </div>
-        <div class="toolbar-group group-nav">
+        
+        <div class="toolbar-group group-middle">
             <button onclick="triggerPrev()" title="Previous"><i class="fas fa-chevron-left"></i></button>
-            <span class="helper-text">Swipe / Drag</span>
             <button onclick="triggerNext()" title="Next"><i class="fas fa-chevron-right"></i></button>
         </div>
-        <div class="toolbar-group group-settings">
+
+        <div class="toolbar-group group-right">
             <button onclick="changeFontSize(-10)" title="Zoom Out"><i class="fas fa-minus"></i></button>
             <button onclick="changeFontSize(10)" title="Zoom In"><i class="fas fa-plus"></i></button>
-            <button onclick="toggleTheme()" title="Theme (Light/Dark/Sepia)"><i class="fas fa-adjust"></i></button>
+            <button onclick="toggleTheme()" title="Theme Swap"><i class="fas fa-circle-half-stroke"></i></button>
         </div>
     </div>
 
