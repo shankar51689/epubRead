@@ -761,7 +761,8 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
-                    .hl-tts-word { fill: #ffeb3b !important; fill-opacity: 0.8 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
+                    .hl-tts-sentence { fill: #2196f3 !important; fill-opacity: 0.1 !important; pointer-events: none !important; }
+                    .hl-tts-word { fill: #ffeb3b !important; fill-opacity: 0.6 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
                     ::highlight(tts-word) { background-color: #ffeb3b !important; color: #000 !important; }
                 `;
                     contents.document.head.appendChild(style);
@@ -1407,43 +1408,61 @@
                 }
             } catch (e) { }
 
-            // Robust Word Highlighting
+            // High-performance Word Highlighting (CSS Custom Highlight API)
+            if (win.CSS && win.CSS.highlights) {
+                try {
+                    if (!win.CSS.highlights.has('tts-word')) {
+                        win.CSS.highlights.set('tts-word', new Highlight());
+                    }
+                    const highlight = win.CSS.highlights.get('tts-word');
+                    highlight.clear();
+                    highlight.add(hlRange);
+                    currentTtsWordCfi = "css-highlight";
+                    return;
+                } catch (e) { }
+            }
+
+            // Fallback: Native EPUB.js Annotations
             try {
                 let contentsList = rendition.getContents();
                 let targetContent = contentsList[0];
                 for (let c of contentsList) { if (c.document === doc) { targetContent = c; break; } }
-                
-                // Use more robust CFI generation method
-                const wordCfi = targetContent.cfiFromRange(hlRange);
-                if (!wordCfi) return;
+                const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
 
-                rendition.annotations.add("active-word", wordCfi, {}, null, "hl-tts-word", {
-                    fill: "#ffeb3b",
-                    "fill-opacity": "0.8",
+                rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
+                    fill: "#f1c40f",
+                    "fill-opacity": "0.7",
                     "mix-blend-mode": "multiply"
                 });
                 currentTtsWordCfi = wordCfi;
-            } catch (e) { console.warn("Highlight error:", e); }
+            } catch (e) { }
         }
 
         function clearTtsWordHighlight() {
-            if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'active-word'); } catch (e) { }
+            if (currentTtsWordCfi === "css-highlight") {
+                rendition.getContents().forEach(c => {
+                    try { if (c.window.CSS && c.window.CSS.highlights && c.window.CSS.highlights.has('tts-word')) c.window.CSS.highlights.get('tts-word').clear(); } catch (e) { }
+                });
+                currentTtsWordCfi = null;
+            } else if (currentTtsWordCfi) {
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
                 currentTtsWordCfi = null;
             }
         }
 
         function removeTtsHighlight() {
+            // Also clean legacy highlight properties
             if (window.ttsHighlightCfiRange) {
-                try { rendition.annotations.remove(window.ttsHighlightCfiRange, 'active-sentence'); } catch (e) { }
+                try { rendition.annotations.remove(window.ttsHighlightCfiRange, 'highlight'); } catch (e) { }
                 window.ttsHighlightCfiRange = null;
             }
             clearTtsWordHighlight();
         }
 
         function highlightTtsSentence(startIndex, length) {
+            return; // disabled
             if (window.ttsHighlightCfiRange) {
-                try { rendition.annotations.remove(window.ttsHighlightCfiRange, 'active-sentence'); } catch (e) { }
+                try { rendition.annotations.remove(window.ttsHighlightCfiRange, 'highlight'); } catch (e) { }
                 window.ttsHighlightCfiRange = null;
             }
             const hlRange = getTextRange(startIndex, length);
@@ -1455,9 +1474,8 @@
                 let targetContent = contentsList[0];
                 for (let c of contentsList) { if (c.document === doc) { targetContent = c; break; } }
 
-                const sentenceCfi = targetContent.cfiFromRange(hlRange);
-                // We keep the type separate to avoid conflicts, and we'll keep it hidden in CSS
-                rendition.annotations.add("active-sentence", sentenceCfi, {}, null, "hl-tts-sentence");
+                const sentenceCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
+                rendition.annotations.add("highlight", sentenceCfi, {}, null, "hl-tts-sentence");
                 window.ttsHighlightCfiRange = sentenceCfi;
             } catch (e) { }
         }
@@ -1476,14 +1494,8 @@
             icon.className = 'fas fa-pause';
             showNotification("Reading...");
 
-            // We disable the visual sentence highlight but keep the range logic for synchronization
-            // highlightTtsSentence(current.startIndex, current.length); 
-
-            // Trigger the first word highlight immediately so it's not blank at the start
-            const firstWordMatch = current.text.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || current.text.match(/^\S+/);
-            if (firstWordMatch) {
-                 highlightTtsWord(current.startIndex, firstWordMatch[0].length);
-            }
+            // Highlight the current sentence
+            // Sentence highlight removed to allow word-only highlighting
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
