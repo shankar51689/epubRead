@@ -584,13 +584,15 @@
             transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.4);
             color: #fff;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 12px;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
             font-family: sans-serif;
             pointer-events: none;
             z-index: 25;
-            opacity: 0.7;
+            opacity: 0.8;
+            backdrop-filter: blur(4px);
         }
     </style>
 </head>
@@ -718,13 +720,14 @@
             book = ePub(url);
 
             // Fix: Show single column in portrait mode (mobile/tab)
+            // Ensure two-column spread in landscape mode, regardless of device width
             const isPortrait = window.innerHeight > window.innerWidth;
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
                 flow: "paginated",
                 spread: isPortrait ? "none" : "auto",
-                minSpreadWidth: 815
+                minSpreadWidth: 0 // Allow spreads on all landscape devices
             });
 
             window.addEventListener('resize', () => {
@@ -780,17 +783,14 @@
                             function forceZeroPadding() {
                                 try {
                                     const isLandscape = window.innerWidth > window.innerHeight;
-                                    if (!isLandscape) return;
-
-                                    // Directly override with inline !important — the only way to
-                                    // beat epub.js's own inline !important setProperty calls
-                                    // Apply healthy margins instead of zeroing out in landscape
-                                    body.style.setProperty('padding-left', '40px', 'important');
-                                    body.style.setProperty('padding-right', '40px', 'important');
-                                    body.style.setProperty('padding-top', '20px', 'important');
-                                    body.style.setProperty('padding-bottom', '20px', 'important');
-                                    body.style.setProperty('margin', '0px', 'important');
-                                    body.style.setProperty('overflow', 'hidden', 'important');
+                                    if (isLandscape) {
+                                        // Mobile Landscape: Single column, Tablet Landscape: Double column (handled by epub.js spread)
+                                        // But per user request, we force spread behavior.
+                                        body.style.setProperty('padding-left', '35px', 'important');
+                                        body.style.setProperty('padding-right', '35px', 'important');
+                                        body.style.setProperty('padding-top', '15px', 'important');
+                                        body.style.setProperty('padding-bottom', '15px', 'important');
+                                    }
 
                                     // Handle fixed-layout (pre-paginated) books where epub.js applies a transform scale
                                     // and fixed px dimensions to the body or root wrapper div.
