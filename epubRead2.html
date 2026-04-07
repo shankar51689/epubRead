@@ -1278,14 +1278,20 @@
                         
                         if (isVisible) {
                             const text = node.textContent;
-                            ttsNodesMap.push({
-                                node: node,
-                                nodeStart: 0,
-                                nodeEnd: text.length,
-                                textStart: ttsOriginalText.length,
-                                textEnd: ttsOriginalText.length + text.length
-                            });
-                            ttsOriginalText += text;
+                            if (text.trim().length > 0) {
+                                ttsNodesMap.push({
+                                    node: node,
+                                    nodeStart: 0,
+                                    nodeEnd: text.length,
+                                    textStart: ttsOriginalText.length,
+                                    textEnd: ttsOriginalText.length + text.length
+                                });
+                                ttsOriginalText += text;
+                                // Always add a space to separate words from different nodes/lines
+                                if (!text.endsWith(' ')) {
+                                    ttsOriginalText += ' ';
+                                }
+                            }
                         }
                     }
                 }
@@ -1375,7 +1381,7 @@
 
                 rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
                     fill: "#f1c40f",
-                    "fill-opacity": "0.9",
+                    "fill-opacity": "0.95",
                     "mix-blend-mode": "multiply"
                 });
                 currentTtsWordCfi = wordCfi;
