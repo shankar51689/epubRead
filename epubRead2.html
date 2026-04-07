@@ -717,20 +717,20 @@
         function initReader(url) {
             book = ePub(url);
 
-            // Optimize layout: single column for mobile (portrait & landscape), auto spread for tablets
-            const disableSpreads = window.innerWidth < 1024;
+            // Fix: Show single column in portrait mode (mobile/tab)
+            const isPortrait = window.innerHeight > window.innerWidth;
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
                 flow: "paginated",
-                spread: disableSpreads ? "none" : "auto",
-                minSpreadWidth: 1024
+                spread: isPortrait ? "none" : "auto",
+                minSpreadWidth: 815
             });
 
             window.addEventListener('resize', () => {
-                const isSmallScreen = window.innerWidth < 1024;
+                const portrait = window.innerHeight > window.innerWidth;
                 if (rendition && typeof rendition.spread === 'function') {
-                    rendition.spread(isSmallScreen ? "none" : "auto");
+                    rendition.spread(portrait ? "none" : "auto");
                 }
                 // Re-apply gap fix after orientation change
                 setTimeout(startSpreadGapObserver, 300);
@@ -780,18 +780,52 @@
                             function forceZeroPadding() {
                                 try {
                                     const isLandscape = window.innerWidth > window.innerHeight;
+                                    if (!isLandscape) return;
 
-                                    if (isLandscape) {
-                                        // Provide a healthy viewing boundary for landscape readability without disrupting layout math
-                                        body.style.setProperty('padding-left', 'max(env(safe-area-inset-left, 30px), 30px)', 'important');
-                                        body.style.setProperty('padding-right', 'max(env(safe-area-inset-right, 30px), 30px)', 'important');
-                                        body.style.setProperty('padding-top', '10px', 'important');
-                                        body.style.setProperty('padding-bottom', '10px', 'important');
-                                    } else {
-                                        // Normal portrait presentation
-                                        body.style.setProperty('padding-left', '0px', 'important');
-                                        body.style.setProperty('padding-right', '0px', 'important');
-                                    }
+                                    // Directly override with inline !important — the only way to
+                                    // beat epub.js's own inline !important setProperty calls
+                                    // Apply healthy margins instead of zeroing out in landscape
+                                    body.style.setProperty('padding-left', '40px', 'important');
+                                    body.style.setProperty('padding-right', '40px', 'important');
+                                    body.style.setProperty('padding-top', '20px', 'important');
+                                    body.style.setProperty('padding-bottom', '20px', 'important');
+                                    body.style.setProperty('margin', '0px', 'important');
+                                    body.style.setProperty('overflow', 'hidden', 'important');
+
+                                    // Handle fixed-layout (pre-paginated) books where epub.js applies a transform scale
+                                    // and fixed px dimensions to the body or root wrapper div.
+                                    body.style.setProperty('width', '100vw', 'important');
+                                    body.style.setProperty('height', '100vh', 'important');
+                                    body.style.setProperty('max-width', '100vw', 'important');
+                                    body.style.setProperty('max-height', '100vh', 'important');
+                                    body.style.setProperty('transform', 'none', 'important');
+
+                                    // Also kill fixed sizing/transforms on any major container divs inside body
+                                    const containers = body.querySelectorAll('div, span');
+                                    containers.forEach(div => {
+                                        // If epub or publisher set a fixed size, override it to fill
+                                        div.style.setProperty('width', '100vw', 'important');
+                                        div.style.setProperty('height', '100vh', 'important');
+                                        div.style.setProperty('max-width', '100vw', 'important');
+                                        div.style.setProperty('max-height', '100vh', 'important');
+                                        div.style.setProperty('margin', '0', 'important');
+                                        div.style.setProperty('padding', '0', 'important');
+                                        // Remove fixed layout translation/scaling
+                                        div.style.setProperty('transform', 'none', 'important');
+                                    });
+
+                                    // Stretch images to fill the half-page exactly 
+                                    const images = body.querySelectorAll('img, svg, image');
+                                    images.forEach(img => {
+                                        img.style.setProperty('width', '100vw', 'important');
+                                        img.style.setProperty('height', '100vh', 'important');
+                                        img.style.setProperty('max-width', '100vw', 'important');
+                                        img.style.setProperty('max-height', '100vh', 'important');
+                                        img.style.setProperty('margin', '0', 'important');
+                                        img.style.setProperty('padding', '0', 'important');
+                                        img.style.setProperty('display', 'block', 'important');
+                                        img.style.setProperty('object-fit', 'cover', 'important');
+                                    });
                                 } catch (e) { }
                             }
 
@@ -982,20 +1016,16 @@
         }
 
         function startSpreadGapObserver() {
-            // Disconnect previous observer if exists
             if (_spreadGapObserver) {
                 _spreadGapObserver.disconnect();
                 _spreadGapObserver = null;
             }
 
-            // Run immediately
             applySpreadLayout();
 
             const viewerEl = document.getElementById('viewer');
             if (!viewerEl) return;
 
-            // Watch for ANY DOM mutation inside #viewer and re-apply the layout.
-            // This catches epub.js re-sizing iframes after we set them.
             _spreadGapObserver = new MutationObserver(() => {
                 applySpreadLayout();
             });
@@ -1006,7 +1036,6 @@
                 attributeFilter: ['style', 'width', 'height']
             });
 
-            // Stop watching after 2 seconds — epub.js is settled by then
             setTimeout(() => {
                 if (_spreadGapObserver) {
                     _spreadGapObserver.disconnect();
@@ -1015,7 +1044,6 @@
             }, 2000);
         }
 
-        // Keep backward compat alias
         function removeSpreadGap() { startSpreadGapObserver(); }
 
         /* --- HIGHLIGHT LOGIC --- */
