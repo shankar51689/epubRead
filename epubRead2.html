@@ -1386,7 +1386,6 @@
         }
 
         function highlightTtsWord(charIndex, charLength) {
-            clearTtsWordHighlight();
             const hlRange = getTextRange(charIndex, charLength);
             if (!hlRange) return;
 
@@ -1397,6 +1396,11 @@
                 
                 const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
                 if (!wordCfi) return;
+
+                // Clear previous ONLY if we successfully got a new one to avoid flickering/blanks
+                if (currentTtsWordCfi) {
+                    try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
+                }
 
                 rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
                     fill: "#ffeb3b",
@@ -1550,20 +1554,24 @@
                 if (typeof data === 'string') data = JSON.parse(data);
                 if (!data || !data.type) return;
 
-                if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
+                // Handle both possible key formats: charIndex/charLength or start/length
+                const rawIndex = typeof data.charIndex !== 'undefined' ? data.charIndex : data.start;
+                const rawLength = typeof data.charLength !== 'undefined' ? data.charLength : data.length;
+
+                if (data.type === 'tts-progress' && typeof rawIndex !== 'undefined') {
                     const currentObj = globalTtsQueue[globalTtsIndex];
                     if (currentObj) {
-                        // Calculate word length from the text if bridge doesn't provide it
-                        let validLength = data.charLength;
+                        // Dynamically calculate length if missing
+                        let validLength = rawLength;
                         if (!validLength) {
-                            const textRemainder = currentObj.text.substring(data.charIndex);
+                            const textRemainder = currentObj.text.substring(rawIndex);
                             const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
                             validLength = wordMatch ? wordMatch[0].length : 1;
                         }
                         
                         // Sync visual highlight
                         requestAnimationFrame(() => {
-                            highlightTtsWord(currentObj.startIndex + data.charIndex, validLength);
+                            highlightTtsWord(currentObj.startIndex + rawIndex, validLength);
                         });
                     }
                 } else if (data.type === 'tts-finish') {
@@ -1575,9 +1583,7 @@
                     isTtsMode = false;
                     removeTtsHighlight();
                 }
-            } catch (e) {
-                // Ignore parsing errors for non-JSON messages
-            }
+            } catch (e) { }
         };
 
         const handleBridgeMessage = (event) => {
