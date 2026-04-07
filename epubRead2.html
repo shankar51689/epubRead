@@ -1403,6 +1403,8 @@
                 const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
                 if (!wordCfi) return;
 
+                if (currentTtsWordCfi === wordCfi) return; // Safely prevent DOM thrashing logic
+
                 // Important: Atomic clear/add to avoid flickering while ensuring only ONE word is highlighted
                 if (currentTtsWordCfi) {
                     try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
@@ -1461,27 +1463,44 @@
             while ((mTemp = regexTemp.exec(current.text)) !== null) {
                 wordsMatch.push({ index: mTemp.index, length: mTemp[0].length });
             }
-            let simulatedWordIndex = 0;
-
             if (wordsMatch.length > 0) {
                 const first = wordsMatch[0];
                 highlightTtsWord(current.startIndex + first.index, first.length);
-                simulatedWordIndex = 1;
             }
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
                 
-                // Fallback Simulator: Advances word highlight reliably if RN bridge drops/fails progress events
+                // Smart Time-Based Simulator: Interpolates character distribution matching speech speed
+                let speedFactor = window.ttsRate || 1;
+                const charSpeedMs = 65 / speedFactor; // ~15 chars per sec relative to average speech
+                const startTime = Date.now() + 250; // Android TTS Wake-up buffer
+
                 window.ttsSimulatedInterval = setInterval(() => {
-                    if (window.ttsHadRealProgress || !isTtsMode || simulatedWordIndex >= wordsMatch.length) {
+                    if (window.ttsHadRealProgress || !isTtsMode) {
                         clearInterval(window.ttsSimulatedInterval);
                         return;
                     }
-                    const next = wordsMatch[simulatedWordIndex];
-                    highlightTtsWord(current.startIndex + next.index, next.length);
-                    simulatedWordIndex++;
-                }, 350); // Simulated pace of ~170 words per minute
+                    
+                    const elapsedTime = Date.now() - startTime;
+                    if (elapsedTime < 0) return; 
+
+                    const expectedCharIndex = Math.floor(elapsedTime / charSpeedMs);
+                    if (expectedCharIndex >= current.text.length) return; 
+
+                    let activeWord = wordsMatch[0];
+                    for (let i = 0; i < wordsMatch.length; i++) {
+                         if (wordsMatch[i].index <= expectedCharIndex) {
+                              activeWord = wordsMatch[i];
+                         } else {
+                              break;
+                         }
+                    }
+
+                    if (activeWord) {
+                        highlightTtsWord(current.startIndex + activeWord.index, activeWord.length);
+                    }
+                }, 40); // 40ms high-refresh smooth UI check loop
             } else {
                 const utterance = new SpeechSynthesisUtterance(current.text);
                 utterance.rate = typeof ttsRate !== 'undefined' ? ttsRate : 1;
