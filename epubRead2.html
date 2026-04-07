@@ -761,9 +761,8 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
-                    .hl-tts-sentence { fill: #2196f3 !important; fill-opacity: 0.1 !important; pointer-events: none !important; }
-                    .hl-tts-word { fill: #ffeb3b !important; fill-opacity: 0.6 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
-                    ::highlight(tts-word) { background-color: #ffeb3b !important; color: #000 !important; }
+                    .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.8 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
+                    ::highlight(tts-word) { background-color: #f1c40f !important; color: #000 !important; }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1431,7 +1430,7 @@
 
                 rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
                     fill: "#f1c40f",
-                    "fill-opacity": "0.7",
+                    "fill-opacity": "0.85",
                     "mix-blend-mode": "multiply"
                 });
                 currentTtsWordCfi = wordCfi;
@@ -1493,8 +1492,8 @@
             icon.className = 'fas fa-pause';
             showNotification("Reading...");
 
-            // Highlight the current sentence
-            highlightTtsSentence(current.startIndex, current.length);
+            // Removed sentence-level highlighting - we only want word-at-a-time highlighting now
+            // highlightTtsSentence(current.startIndex, current.length); 
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
