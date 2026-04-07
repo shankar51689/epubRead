@@ -1440,38 +1440,59 @@
             }
 
             try {
-                const doc = startNode.ownerDocument;
+                const iframeDoc = startNode.ownerDocument;
+                const iframeWin = iframeDoc.defaultView;
 
-                // Build a Range (no DOM mutation – read-only use)
-                const range = doc.createRange();
+                // Build a Range (read-only, no DOM mutation)
+                const range = iframeDoc.createRange();
                 range.setStart(startNode, startOffset);
                 range.setEnd(endNode, endOffset);
 
-                const wordRect = range.getBoundingClientRect();
+                // Get word rect in iframe coordinate space
+                let wordRect = range.getBoundingClientRect();
+                // Fallback: some Android WebViews return 0-size for getBoundingClientRect on ranges
+                if (!wordRect || wordRect.width === 0) {
+                    const rects = range.getClientRects();
+                    if (rects && rects.length > 0) wordRect = rects[0];
+                }
                 if (!wordRect || wordRect.width === 0) return;
 
-                // Find the iframe element so we can offset into the host page
+                // ── Get iframe offset in the parent page ──
+                // Method 1: frameElement (works in RN WebView — same-origin, no cross-doc query needed)
+                // Method 2: parent document search (web browser fallback)
                 let iframeOffsetX = 0, iframeOffsetY = 0;
                 try {
-                    const iframes = document.querySelectorAll('#viewer iframe');
-                    for (const iframe of iframes) {
-                        if (iframe.contentDocument === doc) {
-                            const iframeRect = iframe.getBoundingClientRect();
-                            iframeOffsetX = iframeRect.left;
-                            iframeOffsetY = iframeRect.top;
-                            break;
-                        }
+                    // From INSIDE the iframe's window, frameElement is the <iframe> in the parent doc
+                    const frameEl = iframeWin.frameElement;
+                    if (frameEl) {
+                        const iframeRect = frameEl.getBoundingClientRect();
+                        iframeOffsetX = iframeRect.left;
+                        iframeOffsetY = iframeRect.top;
                     }
-                } catch (e) { }
+                } catch (e1) {
+                    // Fallback: search from parent (standard browser)
+                    try {
+                        const iframes = document.querySelectorAll('#viewer iframe');
+                        for (const iframe of iframes) {
+                            try {
+                                if (iframe.contentDocument === iframeDoc) {
+                                    const iframeRect = iframe.getBoundingClientRect();
+                                    iframeOffsetX = iframeRect.left;
+                                    iframeOffsetY = iframeRect.top;
+                                    break;
+                                }
+                            } catch (_) {}
+                        }
+                    } catch (e2) {}
+                }
 
-                // Position the overlay
+                // Position the overlay in the main document
                 const ol = _ttsOverlay;
-                ol.style.left   = (iframeOffsetX + wordRect.left)   + 'px';
-                ol.style.top    = (iframeOffsetY + wordRect.top)    + 'px';
-                ol.style.width  = wordRect.width  + 'px';
-                ol.style.height = wordRect.height + 'px';
+                ol.style.left    = (iframeOffsetX + wordRect.left)   + 'px';
+                ol.style.top     = (iframeOffsetY + wordRect.top)    + 'px';
+                ol.style.width   = wordRect.width  + 'px';
+                ol.style.height  = wordRect.height + 'px';
                 ol.style.display = 'block';
-
                 currentTtsWordCfi = 'overlay';
 
             } catch (e) {
