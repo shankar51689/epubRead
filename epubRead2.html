@@ -792,20 +792,52 @@
                             function forceZeroPadding() {
                                 try {
                                     const isLandscape = window.innerWidth > window.innerHeight;
-                                    if (!isLandscape) {
-                                        // Portrait: let epub.js manage its own padding
-                                        return;
-                                    }
-                                    // Landscape: only set body padding — do NOT touch inner divs/spans
-                                    // Epub.js sets its own padding-left/right on body to create a column gap.
-                                    // We gently override that to keep a readable margin.
-                                    body.style.setProperty('padding-left', '24px', 'important');
-                                    body.style.setProperty('padding-right', '24px', 'important');
-                                    body.style.setProperty('padding-top', '12px', 'important');
-                                    body.style.setProperty('padding-bottom', '12px', 'important');
-                                    body.style.setProperty('margin', '0', 'important');
+                                    if (!isLandscape) return;
+
+                                    // Directly override with inline !important — the only way to
+                                    // beat epub.js's own inline !important setProperty calls
+                                    // Apply healthy margins instead of zeroing out in landscape
+                                    body.style.setProperty('padding-left', '40px', 'important');
+                                    body.style.setProperty('padding-right', '40px', 'important');
+                                    body.style.setProperty('padding-top', '20px', 'important');
+                                    body.style.setProperty('padding-bottom', '20px', 'important');
+                                    body.style.setProperty('margin', '0px', 'important');
                                     body.style.setProperty('overflow', 'hidden', 'important');
-                                    body.style.setProperty('box-sizing', 'border-box', 'important');
+
+                                    // Handle fixed-layout (pre-paginated) books where epub.js applies a transform scale
+                                    // and fixed px dimensions to the body or root wrapper div.
+                                    // FIXED: Use 100% instead of 100vw so it respects the iframe/column width
+                                    body.style.setProperty('width', '100%', 'important');
+                                    body.style.setProperty('height', '100%', 'important');
+                                    body.style.setProperty('max-width', '100%', 'important');
+                                    body.style.setProperty('max-height', '100%', 'important');
+                                    body.style.setProperty('transform', 'none', 'important');
+
+                                    // Also kill fixed sizing/transforms on any major container divs inside body
+                                    const containers = body.querySelectorAll('div, span');
+                                    containers.forEach(div => {
+                                        // If epub or publisher set a fixed size, override it to fill
+                                        div.style.setProperty('width', '100%', 'important');
+                                        div.style.setProperty('height', '100%', 'important');
+                                        div.style.setProperty('max-width', '100%', 'important');
+                                        div.style.setProperty('max-height', '100%', 'important');
+                                        div.style.setProperty('margin', '0', 'important');
+                                        div.style.setProperty('padding', '0', 'important');
+                                        div.style.setProperty('transform', 'none', 'important');
+                                    });
+
+                                    // Stretch images to fill the half-page exactly 
+                                    const images = body.querySelectorAll('img, svg, image');
+                                    images.forEach(img => {
+                                        img.style.setProperty('width', '100%', 'important');
+                                        img.style.setProperty('height', '100%', 'important');
+                                        img.style.setProperty('max-width', '100%', 'important');
+                                        img.style.setProperty('max-height', '100%', 'important');
+                                        img.style.setProperty('margin', '0', 'important');
+                                        img.style.setProperty('padding', '0', 'important');
+                                        img.style.setProperty('display', 'block', 'important');
+                                        img.style.setProperty('object-fit', 'cover', 'important');
+                                    });
                                 } catch (e) { }
                             }
 
@@ -925,7 +957,7 @@
         let _applyingLayout = false;
 
         function applySpreadLayout() {
-            if (_applyingLayout) return;
+            if (_applyingLayout) return; // prevent re-entrancy
             _applyingLayout = true;
             try {
                 const isLandscape = window.innerWidth > window.innerHeight;
@@ -936,18 +968,19 @@
                 if (!container) return;
 
                 const views = Array.from(container.querySelectorAll('.epub-view'));
-
-                if (!isLandscape || views.length < 1) return;
+                if (!isLandscape || views.length === 0) return;
 
                 const totalW = viewerEl.offsetWidth;
                 const totalH = viewerEl.offsetHeight;
 
                 if (views.length === 2) {
-                    // TRUE two-page spread — Kindle style
-                    const gap = 2;         // thin center divider gap
-                    const halfW = Math.floor((totalW - gap) / 2);
-                    const rightW = totalW - gap - halfW;
+                    const gap = 30; // pixels between columns
+                    const sideMargin = 20; // pixels from outer edges
+                    const availableW = totalW - (sideMargin * 2) - gap;
+                    const halfW = Math.floor(availableW / 2);
+                    const rightW = availableW - halfW;
 
+                    // Force container to fill viewer absolutely
                     container.style.cssText = [
                         'position:absolute',
                         'top:0', 'left:0',
@@ -957,15 +990,13 @@
                         'flex-direction:row',
                         'flex-wrap:nowrap',
                         'justify-content:center',
-                        'align-items:stretch',
-                        'gap:' + gap + 'px',
-                        'background:rgba(0,0,0,0.3)'   // center spine shadow
+                        'align-items:center',
+                        'gap:' + gap + 'px'
                     ].join(';');
 
                     _sizeView(views[0], halfW, totalH);
                     _sizeView(views[1], rightW, totalH);
                 } else {
-                    // Single page in landscape — center it, give side margins
                     const pageW = Math.min(totalW, Math.round(totalH * 0.7)); // book aspect ratio
                     container.style.cssText = [
                         'position:absolute',
