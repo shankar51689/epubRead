@@ -1394,16 +1394,17 @@
                 let contentsList = rendition.getContents();
                 let targetContent = contentsList.find(c => c.document === doc) || contentsList[0];
                 
+                // Track current word highlight with standard compatibility type
                 const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
                 if (!wordCfi) return;
 
-                // Clear previous ONLY if we successfully got a new one to avoid flickering/blanks
+                // Important: Atomic clear/add to avoid flickering while ensuring only ONE word is highlighted
                 if (currentTtsWordCfi) {
                     try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
                 }
 
                 rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
-                    fill: "#ffeb3b",
+                    fill: "#f1c40f",
                     "fill-opacity": "0.8",
                     "mix-blend-mode": "multiply"
                 });
@@ -1445,10 +1446,7 @@
             icon.className = 'fas fa-pause';
             showNotification("Reading...");
 
-            // Sentence-level visual highlight disabled
-            // highlightTtsSentence(current.startIndex, current.length); 
-            
-            // Immediate highlight for the first word to ensure zero latency perception
+            // Trigger the first word highlight immediately so it's not blank at the start
             const firstWordMatch = current.text.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || current.text.match(/^\S+/);
             if (firstWordMatch) {
                 highlightTtsWord(current.startIndex, firstWordMatch[0].length);
@@ -1457,23 +1455,25 @@
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
             } else {
-                const utter = new SpeechSynthesisUtterance(current.text);
-
-                utter.onboundary = (e) => {
-                    if (e.name === 'word') {
-                        const textRemainder = utter.text.substring(e.charIndex);
+                const utterance = new SpeechSynthesisUtterance(current.text);
+                utterance.rate = typeof ttsRate !== 'undefined' ? ttsRate : 1;
+                utterance.pitch = 1;
+                
+                utterance.onboundary = (event) => {
+                    if (event.name === 'word') {
+                        const textRemainder = current.text.substring(event.charIndex);
                         const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
-                        const validLength = wordMatch ? wordMatch[0].length : 1;
-                        requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, validLength));
+                        const validLength = wordMatch ? wordMatch[0].length : (event.charLength || 5);
+                        highlightTtsWord(current.startIndex + event.charIndex, validLength);
                     }
                 };
 
-                utter.onend = () => {
+                utterance.onend = () => {
                     globalTtsIndex++;
                     playTtsSequence();
                 };
 
-                utter.onerror = (e) => {
+                utterance.onerror = (e) => {
                     if (e.error !== 'canceled') {
                         console.error("Speech Error:", e);
                         globalTtsIndex++;
@@ -1482,7 +1482,7 @@
                 };
 
                 try { window.speechSynthesis.cancel(); } catch (e) { }
-                window.speechSynthesis.speak(utter);
+                window.speechSynthesis.speak(utterance);
             }
         }
 
@@ -1552,32 +1552,37 @@
         window.handleTtsBridgeMessage = (data) => {
             try {
                 if (typeof data === 'string') data = JSON.parse(data);
-                if (!data || !data.type) return;
+                if (!data || (!data.type && !data.event)) return;
 
-                // Handle both possible key formats: charIndex/charLength or start/length
-                const rawIndex = typeof data.charIndex !== 'undefined' ? data.charIndex : data.start;
-                const rawLength = typeof data.charLength !== 'undefined' ? data.charLength : data.length;
+                const messageType = data.type || data.event || '';
+                const isProgress = messageType === 'tts-progress' || messageType === 'onSpeechProgress' || messageType === 'progress';
+                const isFinish = messageType === 'tts-finish' || messageType === 'onSpeechFinish' || messageType === 'finish';
+                const isStop = messageType === 'tts-stop' || messageType === 'onSpeechStop' || messageType === 'stop';
 
-                if (data.type === 'tts-progress' && typeof rawIndex !== 'undefined') {
-                    const currentObj = globalTtsQueue[globalTtsIndex];
-                    if (currentObj) {
-                        // Dynamically calculate length if missing
-                        let validLength = rawLength;
-                        if (!validLength) {
-                            const textRemainder = currentObj.text.substring(rawIndex);
-                            const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
-                            validLength = wordMatch ? wordMatch[0].length : 1;
+                if (isProgress) {
+                    // Extract index and length from multiple possible property names
+                    const rawIndex = typeof data.charIndex !== 'undefined' ? data.charIndex : (typeof data.start !== 'undefined' ? data.start : data.offset);
+                    const rawLength = typeof data.charLength !== 'undefined' ? data.charLength : data.length;
+
+                    if (typeof rawIndex !== 'undefined') {
+                        const currentObj = globalTtsQueue[globalTtsIndex];
+                        if (currentObj) {
+                            let validLength = rawLength;
+                            if (!validLength) {
+                                const textRemainder = currentObj.text.substring(rawIndex);
+                                const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
+                                validLength = wordMatch ? wordMatch[0].length : 1;
+                            }
+                            
+                            requestAnimationFrame(() => {
+                                highlightTtsWord(currentObj.startIndex + rawIndex, validLength);
+                            });
                         }
-                        
-                        // Sync visual highlight
-                        requestAnimationFrame(() => {
-                            highlightTtsWord(currentObj.startIndex + rawIndex, validLength);
-                        });
                     }
-                } else if (data.type === 'tts-finish') {
+                } else if (isFinish) {
                     globalTtsIndex++;
                     playTtsSequence();
-                } else if (data.type === 'tts-stop') {
+                } else if (isStop) {
                     const icon = document.getElementById('btn-tts-play').querySelector('i');
                     if (icon) icon.className = 'fas fa-play';
                     isTtsMode = false;
@@ -1588,8 +1593,25 @@
 
         const handleBridgeMessage = (event) => {
             try {
-                let data = event.data;
-                if (window.handleTtsBridgeMessage) window.handleTtsBridgeMessage(data);
+                let rawData = event.data;
+                let data = null;
+
+                // Phase 1: Direct JSON parsing
+                if (typeof rawData === 'string') {
+                    try { data = JSON.parse(rawData); } catch(e) {}
+                } else {
+                    data = rawData;
+                }
+
+                // Phase 2: Check for nativeEvent wrapper (Common in some RN bridge versions)
+                if (data && data.nativeEvent && data.nativeEvent.data) {
+                    try { data = JSON.parse(data.nativeEvent.data); } catch(e) {}
+                }
+
+                // Phase 3: Route to handler
+                if (data && typeof data === 'object') {
+                    if (window.handleTtsBridgeMessage) window.handleTtsBridgeMessage(data);
+                }
             } catch (e) { }
         };
         window.addEventListener('message', handleBridgeMessage);
