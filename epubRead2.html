@@ -592,17 +592,6 @@
             z-index: 25;
             opacity: 0.7;
         }
-    /* TTS word highlight overlay – floats over the iframe word */
-    #tts-word-overlay {
-        position: fixed;
-        pointer-events: none;
-        z-index: 9999;
-        background: rgba(241, 196, 15, 0.55);
-        border-radius: 3px;
-        box-shadow: 0 0 0 2px rgba(241, 196, 15, 0.8);
-        display: none;
-        transition: none;
-    }
     </style>
 </head>
 
@@ -664,8 +653,6 @@
             <button class="hl-btn hl-delete" id="btn-remove-hl" onclick="deleteCurrentHighlight()">Remove</button>
         </div>
     </div>
-
-    <div id="tts-word-overlay"></div>
 
     <div id="loading">Loading Book...</div>
     <div id="notification">Notification</div>
@@ -774,8 +761,9 @@
                     .hl-red    { fill: #ff5252 !important; }
                     .hl-green  { fill: #69f0ae !important; }
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
-                    .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.85 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
-                    .hl-tts-sentence { fill: #2196f3 !important; fill-opacity: 0.25 !important; pointer-events: none !important; }
+                    .hl-tts-sentence { fill: #2196f3 !important; fill-opacity: 0.1 !important; pointer-events: none !important; }
+                    .hl-tts-word { fill: #ffeb3b !important; fill-opacity: 0.6 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
+                    ::highlight(tts-word) { background-color: #ffeb3b !important; color: #000 !important; }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1263,61 +1251,104 @@
         let ttsNodesMap = [];
         let ttsOriginalText = "";
 
-        // Extracts ONLY screen-visible text from the current epub iframe page
+        // Extracts visible text accurately, avoiding hidden elements
         function getVisibleText() {
             ttsNodesMap = [];
             ttsOriginalText = "";
+            const loc = rendition.currentLocation();
+            if (!loc || !loc.start || !loc.end) return null;
 
             const contentsList = rendition.getContents();
             if (!contentsList || contentsList.length === 0) return null;
 
             try {
-                for (const contents of contentsList) {
+                // We need to determine which contents fall within the current visible location
+                for (let i = 0; i < contentsList.length; i++) {
+                    const contents = contentsList[i];
                     const doc = contents.document;
                     const win = contents.window;
-                    if (!doc || !doc.body) continue;
 
-                    const iframeW = win.innerWidth  || doc.documentElement.clientWidth;
-                    const iframeH = win.innerHeight || doc.documentElement.clientHeight;
+                    // Create a range for this document
+                    let docRange = doc.createRange();
+                    docRange.selectNodeContents(doc.body);
 
-                    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null, false);
-                    let node;
-                    while ((node = walker.nextNode())) {
-                        const parent = node.parentElement;
-                        if (!parent) continue;
+                    // Get start/end CFI ranges
+                    let rangeStart, rangeEnd;
+                    try { rangeStart = rendition.getRange(loc.start.cfi); } catch (e) { }
+                    try { rangeEnd = rendition.getRange(loc.end.cfi); } catch (e) { }
 
-                        // Skip CSS-hidden elements
-                        try {
-                            const st = win.getComputedStyle(parent);
-                            if (st.display === 'none' || st.visibility === 'hidden') continue;
-                        } catch (_) {}
+                    let startNode = docRange.startContainer;
+                    let startOffset = docRange.startOffset;
+                    let endNode = docRange.endContainer;
+                    let endOffset = docRange.endOffset;
 
-                        const text = node.textContent;
-                        if (!text || text.trim().length === 0) continue;
+                    // If this doc is the start page
+                    if (rangeStart && doc.contains(rangeStart.startContainer)) {
+                        startNode = rangeStart.startContainer;
+                        startOffset = rangeStart.startOffset;
+                    }
+                    // If this doc is the end page
+                    if (rangeEnd && doc.contains(rangeEnd.endContainer)) {
+                        endNode = rangeEnd.endContainer;
+                        endOffset = rangeEnd.endOffset;
+                    }
 
-                        // Only include text that is inside the visible iframe viewport
-                        try {
-                            const rect = parent.getBoundingClientRect();
-                            if (rect.width === 0 || rect.height === 0) continue;
-                            // Must intersect the visible viewport
-                            if (rect.bottom <= 0 || rect.top >= iframeH) continue;
-                            if (rect.right  <= 0 || rect.left >= iframeW) continue;
-                        } catch (_) { continue; }
+                    // Build the intersection range for this document
+                    let visRange = doc.createRange();
+                    try {
+                        visRange.setStart(startNode, startOffset);
+                        visRange.setEnd(endNode, endOffset);
+                    } catch (e) { continue; }
 
-                        ttsNodesMap.push({
-                            node:      node,
-                            nodeStart: 0,
-                            nodeEnd:   text.length,
-                            textStart: ttsOriginalText.length,
-                            textEnd:   ttsOriginalText.length + text.length
-                        });
-                        ttsOriginalText += text;
+                    if (visRange.collapsed) continue;
+
+                    let walker = doc.createTreeWalker(
+                        visRange.commonAncestorContainer,
+                        NodeFilter.SHOW_TEXT,
+                        {
+                            acceptNode: function (node) {
+                                if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+                                let parent = node.parentElement;
+                                if (parent && win) {
+                                    const style = win.getComputedStyle(parent);
+                                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                                        return NodeFilter.FILTER_REJECT;
+                                    }
+                                }
+                                return NodeFilter.FILTER_ACCEPT;
+                            }
+                        }
+                    );
+
+                    let node = walker.nextNode();
+                    if (!node && visRange.commonAncestorContainer.nodeType === 3) {
+                        node = visRange.commonAncestorContainer;
+                    }
+
+                    while (node) {
+                        let nodeStart = (node === visRange.startContainer) ? visRange.startOffset : 0;
+                        let nodeEnd = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
+
+                        if (nodeStart < nodeEnd) {
+                            let textPart = node.textContent.substring(nodeStart, nodeEnd);
+                            ttsNodesMap.push({
+                                node: node,
+                                nodeStart: nodeStart,
+                                nodeEnd: nodeEnd,
+                                textStart: ttsOriginalText.length,
+                                textEnd: ttsOriginalText.length + textPart.length
+                            });
+                            ttsOriginalText += textPart;
+                        }
+                        if (node === visRange.endContainer) break;
+                        node = walker.nextNode();
                     }
                 }
+
                 return ttsOriginalText || null;
             } catch (e) {
-                console.warn('getVisibleText error', e);
-                try { return contentsList[0].document.body.innerText; } catch (_) { return null; }
+                console.warn(e);
+                return contentsList[0].document.body.innerText;
             }
         }
 
@@ -1360,21 +1391,6 @@
             } catch (e) { return null; }
         }
 
-        // ── Word highlight using EPUB.js CFI annotations (same method as epubReader3 sentence highlight) ──
-        // Works natively in both Web and React Native WebView. No DOM surgery, no overlay.
-
-        function clearTtsWordHighlight() {
-            if (currentTtsWordCfi === "css-highlight") {
-                rendition.getContents().forEach(c => {
-                    try { if (c.window.CSS && c.window.CSS.highlights && c.window.CSS.highlights.has('tts-word')) c.window.CSS.highlights.get('tts-word').clear(); } catch(e){}
-                });
-                currentTtsWordCfi = null;
-            } else if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
-                currentTtsWordCfi = null;
-            }
-        }
-
         function highlightTtsWord(charIndex, charLength) {
             clearTtsWordHighlight();
             const hlRange = getTextRange(charIndex, charLength);
@@ -1383,7 +1399,16 @@
             const doc = hlRange.startContainer.ownerDocument;
             const win = doc.defaultView;
 
-            // Method 1: CSS Custom Highlight API — zero DOM mutation, zero sound disturbance
+            // Scroll into view if out of bounds
+            try {
+                const rect = hlRange.getBoundingClientRect();
+                if (rect.top < 0 || rect.bottom > win.innerHeight) {
+                    const el = hlRange.startContainer.parentElement;
+                    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+            } catch (e) { }
+
+            // High-performance Word Highlighting (CSS Custom Highlight API)
             if (win.CSS && win.CSS.highlights) {
                 try {
                     if (!win.CSS.highlights.has('tts-word')) {
@@ -1397,7 +1422,7 @@
                 } catch (e) { }
             }
 
-            // Method 2: epub.js annotation (same as sentence highlight, just word-scoped)
+            // Fallback: Native EPUB.js Annotations
             try {
                 let contentsList = rendition.getContents();
                 let targetContent = contentsList[0];
@@ -1406,11 +1431,23 @@
 
                 rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
                     fill: "#f1c40f",
-                    "fill-opacity": "0.85",
+                    "fill-opacity": "0.7",
                     "mix-blend-mode": "multiply"
                 });
                 currentTtsWordCfi = wordCfi;
             } catch (e) { }
+        }
+
+        function clearTtsWordHighlight() {
+            if (currentTtsWordCfi === "css-highlight") {
+                rendition.getContents().forEach(c => {
+                    try { if (c.window.CSS && c.window.CSS.highlights && c.window.CSS.highlights.has('tts-word')) c.window.CSS.highlights.get('tts-word').clear(); } catch (e) { }
+                });
+                currentTtsWordCfi = null;
+            } else if (currentTtsWordCfi) {
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
+                currentTtsWordCfi = null;
+            }
         }
 
         function removeTtsHighlight() {
@@ -1444,31 +1481,32 @@
 
         function playTtsSequence() {
             if (globalTtsIndex >= globalTtsQueue.length) {
-                // All visible-page content spoken — stop, do NOT turn page
                 const icon = document.getElementById('btn-tts-play').querySelector('i');
                 icon.className = 'fas fa-play';
                 removeTtsHighlight();
                 isTtsMode = false;
-                showNotification("Done");
                 return;
             }
 
             const current = globalTtsQueue[globalTtsIndex];
             const icon = document.getElementById('btn-tts-play').querySelector('i');
             icon.className = 'fas fa-pause';
+            showNotification("Reading...");
+
+            // Highlight the current sentence
+            highlightTtsSentence(current.startIndex, current.length);
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
             } else {
                 const utter = new SpeechSynthesisUtterance(current.text);
 
-                // Word-by-word highlight via onboundary
                 utter.onboundary = (e) => {
                     if (e.name === 'word') {
-                        const remainder = utter.text.substring(e.charIndex);
-                        const wordMatch = remainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || remainder.match(/^\S+/);
-                        const len = wordMatch ? wordMatch[0].length : 1;
-                        requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, len));
+                        const textRemainder = utter.text.substring(e.charIndex);
+                        const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
+                        const validLength = wordMatch ? wordMatch[0].length : 1;
+                        requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, validLength));
                     }
                 };
 
@@ -1479,6 +1517,7 @@
 
                 utter.onerror = (e) => {
                     if (e.error !== 'canceled') {
+                        console.error("Speech Error:", e);
                         globalTtsIndex++;
                         playTtsSequence();
                     }
@@ -1549,13 +1588,12 @@
                 if (!data || !data.type) return;
 
                 if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
-                    // Word-by-word highlight driven by native TTS progress
                     const currentObj = globalTtsQueue[globalTtsIndex];
                     if (currentObj) {
-                        const remainder = currentObj.text.substring(data.charIndex);
-                        const wordMatch = remainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || remainder.match(/^\S+/);
-                        const len = wordMatch ? wordMatch[0].length : (data.charLength || 5);
-                        requestAnimationFrame(() => highlightTtsWord(currentObj.startIndex + data.charIndex, len));
+                        const textRemainder = currentObj.text.substring(data.charIndex);
+                        const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
+                        const validLength = wordMatch ? wordMatch[0].length : (data.charLength || 5);
+                        requestAnimationFrame(() => highlightTtsWord(currentObj.startIndex + data.charIndex, validLength));
                     }
                 } else if (data.type === 'tts-finish') {
                     globalTtsIndex++;
