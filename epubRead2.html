@@ -69,33 +69,24 @@
 
         @media screen and (orientation: landscape) {
             #toolbar {
-                height: 44px;
-                padding: 3px 14px;
+                height: 46px;
+                padding: 4px 12px;
             }
 
             #toolbar button {
-                width: 32px;
-                height: 32px;
-                font-size: 13px;
+                width: 34px;
+                height: 34px;
+                font-size: 14px;
             }
 
             .helper-text {
                 display: none;
             }
 
-            /* Dark outer margin – gives the "book on table" look */
-            #book-viewport {
-                background: #111;
-                padding: 10px 20px 10px 20px;
-                box-sizing: border-box;
-            }
-
-            /* Viewer itself should NOT have a fixed position in landscape so
-               the flex centering from #book-viewport works */
             #viewer {
-                position: relative;
-                border-radius: 2px;
-                box-shadow: 0 6px 32px rgba(0,0,0,0.55);
+                /* Add a bit of breathing room at the top/bottom */
+                padding-top: 5px;
+                padding-bottom: 5px;
             }
         }
 
@@ -593,15 +584,13 @@
             transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.4);
             color: #fff;
-            padding: 4px 14px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: bold;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
             font-family: sans-serif;
             pointer-events: none;
             z-index: 25;
-            opacity: 0.8;
-            backdrop-filter: blur(4px);
+            opacity: 0.7;
         }
     </style>
 </head>
@@ -729,20 +718,19 @@
             book = ePub(url);
 
             // Fix: Show single column in portrait mode (mobile/tab)
-            // Ensure two-column spread in landscape mode, regardless of device width
-            const isPortrait = window.innerHeight > window.innerWidth;
+            const isLandscape = window.innerWidth > window.innerHeight;
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
                 flow: "paginated",
-                spread: isPortrait ? "none" : "auto",
-                minSpreadWidth: 0 // Allow spreads on all landscape devices
+                spread: isLandscape ? "auto" : "none",
+                minSpreadWidth: isLandscape ? 0 : 815  // Mobile landscape: 0, Tablet/Portrait: 815
             });
 
             window.addEventListener('resize', () => {
-                const portrait = window.innerHeight > window.innerWidth;
+                const isLand = window.innerWidth > window.innerHeight;
                 if (rendition && typeof rendition.spread === 'function') {
-                    rendition.spread(portrait ? "none" : "auto");
+                    rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
                 }
                 // Re-apply gap fix after orientation change
                 setTimeout(startSpreadGapObserver, 300);
@@ -804,22 +792,23 @@
                                     body.style.setProperty('margin', '0px', 'important');
                                     body.style.setProperty('overflow', 'hidden', 'important');
 
-                                    // Handle fixed-layout (pre-paginated) books where epub.js applies a transform scale
-                                    // and fixed px dimensions to the body or root wrapper div.
-                                    // FIXED: Use 100% instead of 100vw so it respects the iframe/column width
-                                    body.style.setProperty('width', '100%', 'important');
+                                    // Handle fixed-layout books
+                                    // Use '100%' in landscape so it stays within the half-page column
+                                    // Use '100vw' in portrait (since column = full screen)
+                                    const sizeVal = isLandscape ? '100%' : '100vw';
+                                    
+                                    body.style.setProperty('width', sizeVal, 'important');
                                     body.style.setProperty('height', '100%', 'important');
-                                    body.style.setProperty('max-width', '100%', 'important');
+                                    body.style.setProperty('max-width', sizeVal, 'important');
                                     body.style.setProperty('max-height', '100%', 'important');
                                     body.style.setProperty('transform', 'none', 'important');
 
                                     // Also kill fixed sizing/transforms on any major container divs inside body
                                     const containers = body.querySelectorAll('div, span');
                                     containers.forEach(div => {
-                                        // If epub or publisher set a fixed size, override it to fill
-                                        div.style.setProperty('width', '100%', 'important');
+                                        div.style.setProperty('width', sizeVal, 'important');
                                         div.style.setProperty('height', '100%', 'important');
-                                        div.style.setProperty('max-width', '100%', 'important');
+                                        div.style.setProperty('max-width', sizeVal, 'important');
                                         div.style.setProperty('max-height', '100%', 'important');
                                         div.style.setProperty('margin', '0', 'important');
                                         div.style.setProperty('padding', '0', 'important');
@@ -828,10 +817,11 @@
 
                                     // Stretch images to fill the half-page exactly 
                                     const images = body.querySelectorAll('img, svg, image');
+                                    const imgWidth = isLandscape ? '100%' : '100vw';
                                     images.forEach(img => {
-                                        img.style.setProperty('width', '100%', 'important');
+                                        img.style.setProperty('width', imgWidth, 'important');
                                         img.style.setProperty('height', '100%', 'important');
-                                        img.style.setProperty('max-width', '100%', 'important');
+                                        img.style.setProperty('max-width', imgWidth, 'important');
                                         img.style.setProperty('max-height', '100%', 'important');
                                         img.style.setProperty('margin', '0', 'important');
                                         img.style.setProperty('padding', '0', 'important');
@@ -968,48 +958,33 @@
                 if (!container) return;
 
                 const views = Array.from(container.querySelectorAll('.epub-view'));
-                if (!isLandscape || views.length === 0) return;
+                if (views.length !== 2 || !isLandscape) return;
 
                 const totalW = viewerEl.offsetWidth;
                 const totalH = viewerEl.offsetHeight;
+                const gap = 30; // pixels between columns
+                const sideMargin = 20; // pixels from outer edges
+                const availableW = totalW - (sideMargin * 2) - gap;
+                const halfW = Math.floor(availableW / 2);
+                const rightW = availableW - halfW;
 
-                if (views.length === 2) {
-                    const gap = 30; // pixels between columns
-                    const sideMargin = 20; // pixels from outer edges
-                    const availableW = totalW - (sideMargin * 2) - gap;
-                    const halfW = Math.floor(availableW / 2);
-                    const rightW = availableW - halfW;
+                // Force container to fill viewer absolutely
+                container.style.position = 'absolute';
+                container.style.top = '0';
+                container.style.left = '0';
+                container.style.width = totalW + 'px';
+                container.style.height = totalH + 'px';
+                container.style.display = 'flex';
+                container.style.flexDirection = 'row';
+                container.style.flexWrap = 'nowrap';
+                container.style.justifyContent = 'center';
+                container.style.alignItems = 'center';
+                container.style.gap = gap + 'px';
 
-                    // Force container to fill viewer absolutely
-                    container.style.cssText = [
-                        'position:absolute',
-                        'top:0', 'left:0',
-                        'width:' + totalW + 'px',
-                        'height:' + totalH + 'px',
-                        'display:flex',
-                        'flex-direction:row',
-                        'flex-wrap:nowrap',
-                        'justify-content:center',
-                        'align-items:center',
-                        'gap:' + gap + 'px'
-                    ].join(';');
-
-                    _sizeView(views[0], halfW, totalH);
-                    _sizeView(views[1], rightW, totalH);
-                } else {
-                    const pageW = Math.min(totalW, Math.round(totalH * 0.7)); // book aspect ratio
-                    container.style.cssText = [
-                        'position:absolute',
-                        'top:0', 'left:0',
-                        'width:' + totalW + 'px',
-                        'height:' + totalH + 'px',
-                        'display:flex',
-                        'flex-direction:row',
-                        'justify-content:center',
-                        'align-items:stretch'
-                    ].join(';');
-                    _sizeView(views[0], pageW, totalH);
-                }
+                // Left page
+                _sizeView(views[0], halfW, totalH);
+                // Right page
+                _sizeView(views[1], rightW, totalH);
             } catch (e) {
                 console.warn('applySpreadLayout error:', e);
             } finally {
