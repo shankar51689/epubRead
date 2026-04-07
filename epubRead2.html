@@ -1254,100 +1254,45 @@
         function getVisibleText() {
             ttsNodesMap = [];
             ttsOriginalText = "";
-            const loc = rendition.currentLocation();
-            if (!loc || !loc.start || !loc.end) return null;
-
             const contentsList = rendition.getContents();
             if (!contentsList || contentsList.length === 0) return null;
 
             try {
-                // We need to determine which contents fall within the current visible location
-                for (let i = 0; i < contentsList.length; i++) {
-                    const contents = contentsList[i];
+                for (let contents of contentsList) {
                     const doc = contents.document;
                     const win = contents.window;
+                    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null, false);
+                    
+                    let node;
+                    while (node = walker.nextNode()) {
+                        const parent = node.parentElement;
+                        if (!parent) continue;
+                        
+                        const style = win.getComputedStyle(parent);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
 
-                    // Create a range for this document
-                    let docRange = doc.createRange();
-                    docRange.selectNodeContents(doc.body);
-
-                    // Get start/end CFI ranges
-                    let rangeStart, rangeEnd;
-                    try { rangeStart = rendition.getRange(loc.start.cfi); } catch (e) { }
-                    try { rangeEnd = rendition.getRange(loc.end.cfi); } catch (e) { }
-
-                    let startNode = docRange.startContainer;
-                    let startOffset = docRange.startOffset;
-                    let endNode = docRange.endContainer;
-                    let endOffset = docRange.endOffset;
-
-                    // If this doc is the start page
-                    if (rangeStart && doc.contains(rangeStart.startContainer)) {
-                        startNode = rangeStart.startContainer;
-                        startOffset = rangeStart.startOffset;
-                    }
-                    // If this doc is the end page
-                    if (rangeEnd && doc.contains(rangeEnd.endContainer)) {
-                        endNode = rangeEnd.endContainer;
-                        endOffset = rangeEnd.endOffset;
-                    }
-
-                    // Build the intersection range for this document
-                    let visRange = doc.createRange();
-                    try {
-                        visRange.setStart(startNode, startOffset);
-                        visRange.setEnd(endNode, endOffset);
-                    } catch (e) { continue; }
-
-                    if (visRange.collapsed) continue;
-
-                    let walker = doc.createTreeWalker(
-                        visRange.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {
-                            acceptNode: function (node) {
-                                if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
-                                let parent = node.parentElement;
-                                if (parent && win) {
-                                    const style = win.getComputedStyle(parent);
-                                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-                                        return NodeFilter.FILTER_REJECT;
-                                    }
-                                }
-                                return NodeFilter.FILTER_ACCEPT;
-                            }
-                        }
-                    );
-
-                    let node = walker.nextNode();
-                    if (!node && visRange.commonAncestorContainer.nodeType === 3) {
-                        node = visRange.commonAncestorContainer;
-                    }
-
-                    while (node) {
-                        let nodeStart = (node === visRange.startContainer) ? visRange.startOffset : 0;
-                        let nodeEnd = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
-
-                        if (nodeStart < nodeEnd) {
-                            let textPart = node.textContent.substring(nodeStart, nodeEnd);
+                        // Basic visibility check: is it within the current viewport?
+                        const rect = parent.getBoundingClientRect();
+                        const isVisible = rect.width > 0 && rect.height > 0 && 
+                                          rect.left < win.innerWidth && rect.right > 0;
+                        
+                        if (isVisible) {
+                            const text = node.textContent;
                             ttsNodesMap.push({
                                 node: node,
-                                nodeStart: nodeStart,
-                                nodeEnd: nodeEnd,
+                                nodeStart: 0,
+                                nodeEnd: text.length,
                                 textStart: ttsOriginalText.length,
-                                textEnd: ttsOriginalText.length + textPart.length
+                                textEnd: ttsOriginalText.length + text.length
                             });
-                            ttsOriginalText += textPart;
+                            ttsOriginalText += text;
                         }
-                        if (node === visRange.endContainer) break;
-                        node = walker.nextNode();
                     }
                 }
-
                 return ttsOriginalText || null;
             } catch (e) {
-                console.warn(e);
-                return contentsList[0].document.body.innerText;
+                console.error("Text extraction failed:", e);
+                return null;
             }
         }
 
@@ -1568,6 +1513,21 @@
                 }
                 return;
             }
+
+            // FORCE INJECT STYLES for highlighting just in case
+            try {
+                rendition.getContents().forEach(contents => {
+                    if (!contents.document.getElementById('tts-styles')) {
+                        let style = contents.document.createElement('style');
+                        style.id = 'tts-styles';
+                        style.innerHTML = `
+                            .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.9 !important; mix-blend-mode: multiply !important; background-color: #f1c40f !important; color: #000 !important; }
+                            ::highlight(tts-word) { background-color: #f1c40f !important; color: #000 !important; font-weight: bold !important; }
+                        `;
+                        contents.document.head.appendChild(style);
+                    }
+                });
+            } catch (e) { }
 
             const text = getVisibleText();
             if (!text) { showNotification("No text found"); return; }
