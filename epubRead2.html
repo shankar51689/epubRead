@@ -763,6 +763,16 @@
                     ::selection { background: #ffeb3b !important; color: #000 !important; }
                     .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.9 !important; mix-blend-mode: multiply !important; pointer-events: none !important; }
                     ::highlight(tts-word) { background-color: #f1c40f !important; color: #000 !important; font-weight: bold !important; }
+                    mark.tts-word-mark {
+                        background: #f1c40f !important;
+                        color: inherit !important;
+                        border-radius: 3px !important;
+                        padding: 0 1px !important;
+                        box-shadow: 0 0 0 2px #f1c40f !important;
+                        font-weight: bold !important;
+                        -webkit-box-decoration-break: clone;
+                        box-decoration-break: clone;
+                    }
                 `;
                     contents.document.head.appendChild(style);
 
@@ -1254,51 +1264,100 @@
         function getVisibleText() {
             ttsNodesMap = [];
             ttsOriginalText = "";
+            const loc = rendition.currentLocation();
+            if (!loc || !loc.start || !loc.end) return null;
+
             const contentsList = rendition.getContents();
             if (!contentsList || contentsList.length === 0) return null;
 
             try {
-                for (let contents of contentsList) {
+                // We need to determine which contents fall within the current visible location
+                for (let i = 0; i < contentsList.length; i++) {
+                    const contents = contentsList[i];
                     const doc = contents.document;
                     const win = contents.window;
-                    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null, false);
-                    
-                    let node;
-                    while (node = walker.nextNode()) {
-                        const parent = node.parentElement;
-                        if (!parent) continue;
-                        
-                        const style = win.getComputedStyle(parent);
-                        if (style.display === 'none' || style.visibility === 'hidden') continue;
 
-                        // Basic visibility check: is it within the current viewport?
-                        const rect = parent.getBoundingClientRect();
-                        const isVisible = rect.width > 0 && rect.height > 0 && 
-                                          rect.left < win.innerWidth && rect.right > 0;
-                        
-                        if (isVisible) {
-                            const text = node.textContent;
-                            if (text.trim().length > 0) {
-                                ttsNodesMap.push({
-                                    node: node,
-                                    nodeStart: 0,
-                                    nodeEnd: text.length,
-                                    textStart: ttsOriginalText.length,
-                                    textEnd: ttsOriginalText.length + text.length
-                                });
-                                ttsOriginalText += text;
-                                // Always add a space to separate words from different nodes/lines
-                                if (!text.endsWith(' ')) {
-                                    ttsOriginalText += ' ';
+                    // Create a range for this document
+                    let docRange = doc.createRange();
+                    docRange.selectNodeContents(doc.body);
+
+                    // Get start/end CFI ranges
+                    let rangeStart, rangeEnd;
+                    try { rangeStart = rendition.getRange(loc.start.cfi); } catch (e) { }
+                    try { rangeEnd = rendition.getRange(loc.end.cfi); } catch (e) { }
+
+                    let startNode = docRange.startContainer;
+                    let startOffset = docRange.startOffset;
+                    let endNode = docRange.endContainer;
+                    let endOffset = docRange.endOffset;
+
+                    // If this doc is the start page
+                    if (rangeStart && doc.contains(rangeStart.startContainer)) {
+                        startNode = rangeStart.startContainer;
+                        startOffset = rangeStart.startOffset;
+                    }
+                    // If this doc is the end page
+                    if (rangeEnd && doc.contains(rangeEnd.endContainer)) {
+                        endNode = rangeEnd.endContainer;
+                        endOffset = rangeEnd.endOffset;
+                    }
+
+                    // Build the intersection range for this document
+                    let visRange = doc.createRange();
+                    try {
+                        visRange.setStart(startNode, startOffset);
+                        visRange.setEnd(endNode, endOffset);
+                    } catch (e) { continue; }
+
+                    if (visRange.collapsed) continue;
+
+                    let walker = doc.createTreeWalker(
+                        visRange.commonAncestorContainer,
+                        NodeFilter.SHOW_TEXT,
+                        {
+                            acceptNode: function (node) {
+                                if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+                                let parent = node.parentElement;
+                                if (parent && win) {
+                                    const style = win.getComputedStyle(parent);
+                                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                                        return NodeFilter.FILTER_REJECT;
+                                    }
                                 }
+                                return NodeFilter.FILTER_ACCEPT;
                             }
                         }
+                    );
+
+                    let node = walker.nextNode();
+                    if (!node && visRange.commonAncestorContainer.nodeType === 3) {
+                        node = visRange.commonAncestorContainer;
+                    }
+
+                    while (node) {
+                        let nodeStart = (node === visRange.startContainer) ? visRange.startOffset : 0;
+                        let nodeEnd = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
+
+                        if (nodeStart < nodeEnd) {
+                            let textPart = node.textContent.substring(nodeStart, nodeEnd);
+                            ttsNodesMap.push({
+                                node: node,
+                                nodeStart: nodeStart,
+                                nodeEnd: nodeEnd,
+                                textStart: ttsOriginalText.length,
+                                textEnd: ttsOriginalText.length + textPart.length
+                            });
+                            ttsOriginalText += textPart;
+                        }
+                        if (node === visRange.endContainer) break;
+                        node = walker.nextNode();
                     }
                 }
+
                 return ttsOriginalText || null;
             } catch (e) {
-                console.error("Text extraction failed:", e);
-                return null;
+                console.warn(e);
+                return contentsList[0].document.body.innerText;
             }
         }
 
@@ -1341,62 +1400,110 @@
             } catch (e) { return null; }
         }
 
-        function highlightTtsWord(charIndex, charLength) {
-            clearTtsWordHighlight();
-            const hlRange = getTextRange(charIndex, charLength);
-            if (!hlRange) return;
-
-            const doc = hlRange.startContainer.ownerDocument;
-            const win = doc.defaultView;
-
-            // Scroll into view if out of bounds
-            try {
-                const rect = hlRange.getBoundingClientRect();
-                if (rect.top < 0 || rect.bottom > win.innerHeight) {
-                    const el = hlRange.startContainer.parentElement;
-                    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                }
-            } catch (e) { }
-
-            // High-performance Word Highlighting (CSS Custom Highlight API)
-            if (win.CSS && win.CSS.highlights) {
-                try {
-                    if (!win.CSS.highlights.has('tts-word')) {
-                        win.CSS.highlights.set('tts-word', new Highlight());
-                    }
-                    const highlight = win.CSS.highlights.get('tts-word');
-                    highlight.clear();
-                    highlight.add(hlRange);
-                    currentTtsWordCfi = "css-highlight";
-                    return;
-                } catch (e) { }
-            }
-
-            // Fallback: Native EPUB.js Annotations
-            try {
-                let contentsList = rendition.getContents();
-                let targetContent = contentsList[0];
-                for (let c of contentsList) { if (c.document === doc) { targetContent = c; break; } }
-                const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
-
-                rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
-                    fill: "#f1c40f",
-                    "fill-opacity": "0.95",
-                    "mix-blend-mode": "multiply"
-                });
-                currentTtsWordCfi = wordCfi;
-            } catch (e) { }
-        }
+        // Holds reference to the live <mark> element injected into the iframe
+        let _ttsMarkEl = null;
+        let _ttsMarkOrigNode = null;
+        let _ttsMarkOrigOffset = 0;
+        let _ttsMarkEndOffset = 0;
 
         function clearTtsWordHighlight() {
-            if (currentTtsWordCfi === "css-highlight") {
-                rendition.getContents().forEach(c => {
-                    try { if (c.window.CSS && c.window.CSS.highlights && c.window.CSS.highlights.has('tts-word')) c.window.CSS.highlights.get('tts-word').clear(); } catch (e) { }
-                });
-                currentTtsWordCfi = null;
-            } else if (currentTtsWordCfi) {
+            // Remove previously injected <mark> and restore original text node
+            if (_ttsMarkEl && _ttsMarkEl.parentNode) {
+                try {
+                    const parent = _ttsMarkEl.parentNode;
+                    // Put the original text back
+                    const originalText = _ttsMarkEl.textContent;
+                    const textNode = _ttsMarkEl.ownerDocument.createTextNode(originalText);
+                    parent.replaceChild(textNode, _ttsMarkEl);
+                    parent.normalize(); // merge adjacent text nodes
+                } catch (e) { }
+            }
+            _ttsMarkEl = null;
+            _ttsMarkOrigNode = null;
+
+            // Also clean EPUB annotation fallback if used
+            if (currentTtsWordCfi && currentTtsWordCfi !== 'dom-mark') {
                 try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
-                currentTtsWordCfi = null;
+            }
+            currentTtsWordCfi = null;
+        }
+
+        function highlightTtsWord(charIndex, charLength) {
+            clearTtsWordHighlight();
+
+            if (ttsNodesMap.length === 0) return;
+
+            // Find the text node and offset
+            let targetStart = charIndex;
+            let targetEnd   = charIndex + charLength;
+
+            let startNode   = null;
+            let startOffset = 0;
+            let endNode     = null;
+            let endOffset   = 0;
+
+            for (let i = 0; i < ttsNodesMap.length; i++) {
+                const map = ttsNodesMap[i];
+                if (!startNode && targetStart >= map.textStart && targetStart < map.textEnd) {
+                    startNode   = map.node;
+                    startOffset = map.nodeStart + (targetStart - map.textStart);
+                }
+                if (targetEnd > map.textStart && targetEnd <= map.textEnd) {
+                    endNode   = map.node;
+                    endOffset = map.nodeStart + (targetEnd - map.textStart);
+                    break;
+                }
+            }
+
+            if (!startNode) return;
+            if (!endNode || endNode !== startNode) {
+                // Keep highlight within a single text node to make DOM surgery safe
+                endNode   = startNode;
+                endOffset = Math.min(startOffset + charLength, startNode.textContent.length);
+            }
+
+            // ── DOM injection approach (works everywhere, including RN WebView) ──
+            try {
+                const doc    = startNode.ownerDocument;
+                const parent = startNode.parentNode;
+                if (!parent) return;
+
+                // Split the text node: [before][WORD][after]
+                const fullText  = startNode.textContent;
+                const before    = fullText.substring(0, startOffset);
+                const wordText  = fullText.substring(startOffset, endOffset);
+                const after     = fullText.substring(endOffset);
+
+                if (!wordText.trim()) return; // skip whitespace-only
+
+                const mark = doc.createElement('mark');
+                mark.className = 'tts-word-mark';
+                mark.textContent = wordText;
+
+                // Replace the original text node with [before + mark + after]
+                const beforeNode = doc.createTextNode(before);
+                const afterNode  = doc.createTextNode(after);
+
+                parent.insertBefore(beforeNode, startNode);
+                parent.insertBefore(mark, startNode);
+                parent.insertBefore(afterNode, startNode);
+                parent.removeChild(startNode);
+
+                _ttsMarkEl = mark;
+                _ttsMarkOrigNode = startNode;
+                currentTtsWordCfi = 'dom-mark';
+
+                // Scroll into view if needed
+                try {
+                    const win  = doc.defaultView;
+                    const rect = mark.getBoundingClientRect();
+                    if (rect.top < 0 || rect.bottom > win.innerHeight) {
+                        mark.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                } catch (e) { }
+
+            } catch (e) {
+                console.warn('tts mark error', e);
             }
         }
 
@@ -1444,7 +1551,7 @@
             showNotification("Reading...");
 
             // Removed sentence highlight as requested. Only words will be highlighted.
-                
+
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
             } else {
@@ -1519,21 +1626,6 @@
                 }
                 return;
             }
-
-            // FORCE INJECT STYLES for highlighting just in case
-            try {
-                rendition.getContents().forEach(contents => {
-                    if (!contents.document.getElementById('tts-styles')) {
-                        let style = contents.document.createElement('style');
-                        style.id = 'tts-styles';
-                        style.innerHTML = `
-                            .hl-tts-word { fill: #f1c40f !important; fill-opacity: 0.9 !important; mix-blend-mode: multiply !important; background-color: #f1c40f !important; color: #000 !important; }
-                            ::highlight(tts-word) { background-color: #f1c40f !important; color: #000 !important; font-weight: bold !important; }
-                        `;
-                        contents.document.head.appendChild(style);
-                    }
-                });
-            } catch (e) { }
 
             const text = getVisibleText();
             if (!text) { showNotification("No text found"); return; }
