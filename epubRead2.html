@@ -1357,37 +1357,53 @@
 
         function getTextRange(startIndex, length) {
             if (ttsNodesMap.length === 0) return null;
-            let targetStart = startIndex;
-            let targetEnd = startIndex + length;
+            
+            let targetStart = Math.max(0, startIndex);
+            let targetEnd = Math.min(ttsOriginalText.length, startIndex + length);
+
+            if (targetStart >= targetEnd) return null;
 
             let startNode = null, startOffset = 0, endNode = null, endOffset = 0;
 
             for (let i = 0; i < ttsNodesMap.length; i++) {
                 let map = ttsNodesMap[i];
-                if (!startNode && targetStart >= map.textStart && targetStart < map.textEnd) {
+                
+                // Use inclusive check for targetStart to ensure we catch boundaries
+                if (!startNode && targetStart >= map.textStart && targetStart <= map.textEnd) {
                     startNode = map.node;
-                    startOffset = map.nodeStart + (targetStart - map.textStart);
+                    startOffset = Math.min(map.nodeStart + (targetStart - map.textStart), map.node.textContent.length);
                 }
-                if (targetEnd > map.textStart && targetEnd <= map.textEnd) {
+                
+                // Find end node independently
+                if (targetEnd >= map.textStart && targetEnd <= map.textEnd) {
                     endNode = map.node;
-                    endOffset = map.nodeStart + (targetEnd - map.textStart);
-                    break;
+                    endOffset = Math.min(map.nodeStart + (targetEnd - map.textStart), map.node.textContent.length);
+                    // If we found both and they are in the same node (common case), or we already found startNode elsewhere
+                    if (startNode) break; 
                 }
             }
 
-            if (!startNode) return null;
-            if (!endNode) {
-                const lastMap = ttsNodesMap[ttsNodesMap.length - 1];
-                endNode = lastMap.node;
-                endOffset = lastMap.nodeEnd;
+            // Robust fallbacks for edge cases (e.g. trailing punctuation)
+            if (!startNode && ttsNodesMap.length > 0) {
+                const first = ttsNodesMap[0];
+                startNode = first.node; startOffset = first.nodeStart;
             }
+            if (!endNode && ttsNodesMap.length > 0) {
+                const last = ttsNodesMap[ttsNodesMap.length - 1];
+                endNode = last.node; endOffset = last.nodeEnd;
+            }
+
+            if (!startNode || !endNode) return null;
 
             try {
                 const range = startNode.ownerDocument.createRange();
                 range.setStart(startNode, startOffset);
                 range.setEnd(endNode, endOffset);
                 return range;
-            } catch (e) { return null; }
+            } catch (e) { 
+                console.warn("Range creation error", e);
+                return null; 
+            }
         }
 
         function highlightTtsWord(charIndex, charLength) {
@@ -1401,7 +1417,7 @@
             // Scroll into view if out of bounds
             try {
                 const rect = hlRange.getBoundingClientRect();
-                if (rect.top < 10 || rect.bottom > win.innerHeight - 10) {
+                if (rect && (rect.top < 10 || rect.bottom > win.innerHeight - 10)) {
                     const el = hlRange.startContainer.parentElement;
                     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
                 }
@@ -1410,15 +1426,13 @@
             // Standard Highlight Injection (Maximum compatibility)
             try {
                 let contentsList = rendition.getContents();
-                let doc = hlRange.startContainer.ownerDocument;
                 let targetContent = contentsList.find(c => c.document === doc) || contentsList[0];
                 
-                // Manual CFI generation is often more reliable in older epub.js versions
+                // Track current word highlight with unique type to prevent conflicts
                 const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
-
                 if (!wordCfi) return;
 
-                rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
+                rendition.annotations.add("tts-word", wordCfi, {}, null, "hl-tts-word", {
                     fill: "#ffeb3b",
                     "fill-opacity": "0.8",
                     "mix-blend-mode": "multiply"
@@ -1429,7 +1443,7 @@
 
         function clearTtsWordHighlight() {
             if (currentTtsWordCfi) {
-                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
+                try { rendition.annotations.remove(currentTtsWordCfi, 'tts-word'); } catch (e) { }
                 currentTtsWordCfi = null;
             }
         }
@@ -1503,17 +1517,39 @@
         }
 
         function extractSentences(text) {
-            const regex = /[^.!?\n]+[.!?\n]+/g;
+            // Improved regex: splits by sentence terminators but tries to avoid splitting common abbreviations
+            // Splitting by newline and major punctuation
+            const regex = /[^.!?\n]+[.!?\n]*/g;
             let match;
             let sentences = [];
             while ((match = regex.exec(text)) !== null) {
-                sentences.push({ text: match[0], startIndex: match.index, length: match[0].length });
+                let sText = match[0];
+                let sStart = match.index;
+                
+                // Trim leading whitespace but preserve global index sync
+                const leadingSpaceMatch = sText.match(/^\s+/);
+                if (leadingSpaceMatch) {
+                    const shift = leadingSpaceMatch[0].length;
+                    sStart += shift;
+                    sText = sText.substring(shift);
+                }
+                
+                // Clean trailing garbage for clean TTS delivery
+                sText = sText.trimEnd();
+
+                if (sText.length > 1) { // Ignore single-char artifacts
+                    sentences.push({ text: sText, startIndex: sStart, length: sText.length });
+                }
             }
-            const lastIndex = sentences.length ? sentences[sentences.length - 1].startIndex + sentences[sentences.length - 1].length : 0;
-            if (lastIndex < text.length) {
-                sentences.push({ text: text.substring(lastIndex), startIndex: lastIndex, length: text.length - lastIndex });
+
+            // If regex failed to find meaningful chunks, treat the whole thing as one
+            if (sentences.length === 0 && text.trim().length > 0) {
+                const trimmed = text.trim();
+                const start = text.indexOf(trimmed);
+                sentences.push({ text: trimmed, startIndex: start, length: trimmed.length });
             }
-            return sentences.length ? sentences : [{ text: text, startIndex: 0, length: text.length }];
+
+            return sentences;
         }
 
         function ttsPlayPause() {
