@@ -1357,8 +1357,8 @@
 
         function getTextRange(startIndex, length) {
             if (ttsNodesMap.length === 0) return null;
-            let targetStart = startIndex;
-            let targetEnd = startIndex + length;
+            let targetStart = Number(startIndex);
+            let targetEnd = targetStart + Number(length);
 
             let startNode = null, startOffset = 0, endNode = null, endOffset = 0;
 
@@ -1368,11 +1368,16 @@
                     startNode = map.node;
                     startOffset = map.nodeStart + (targetStart - map.textStart);
                 }
-                if (targetEnd > map.textStart && targetEnd <= map.textEnd) {
+                if (startNode && targetEnd > map.textStart && targetEnd <= map.textEnd) {
                     endNode = map.node;
                     endOffset = map.nodeStart + (targetEnd - map.textStart);
+                    break;
                 }
-                if (startNode && endNode) break;
+            }
+
+            if (startNode && !endNode) {
+                endNode = startNode;
+                endOffset = Math.min(startNode.textContent.length, startOffset + Number(length));
             }
 
             if (!startNode || !endNode) return null;
@@ -1418,8 +1423,9 @@
                 currentTtsWordCfi = null;
             }
         }
-
+        
         function removeTtsHighlight() {
+            window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
             if (window.ttsHighlightCfiRange) {
                 try { rendition.annotations.remove(window.ttsHighlightCfiRange, 'active-sentence'); } catch (e) { }
                 window.ttsHighlightCfiRange = null;
@@ -1446,14 +1452,36 @@
             icon.className = 'fas fa-pause';
             showNotification("Reading...");
 
-            // Trigger the first word highlight immediately so it's not blank at the start
-            const firstWordMatch = current.text.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || current.text.match(/^\S+/);
-            if (firstWordMatch) {
-                highlightTtsWord(current.startIndex, firstWordMatch[0].length);
+            window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
+            window.ttsHadRealProgress = false;
+
+            let wordsMatch = [];
+            const regexTemp = /[\w\u00C0-\u017F\u0400-\u04FF]+|\S+/g;
+            let mTemp;
+            while ((mTemp = regexTemp.exec(current.text)) !== null) {
+                wordsMatch.push({ index: mTemp.index, length: mTemp[0].length });
+            }
+            let simulatedWordIndex = 0;
+
+            if (wordsMatch.length > 0) {
+                const first = wordsMatch[0];
+                highlightTtsWord(current.startIndex + first.index, first.length);
+                simulatedWordIndex = 1;
             }
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
+                
+                // Fallback Simulator: Advances word highlight reliably if RN bridge drops/fails progress events
+                window.ttsSimulatedInterval = setInterval(() => {
+                    if (window.ttsHadRealProgress || !isTtsMode || simulatedWordIndex >= wordsMatch.length) {
+                        clearInterval(window.ttsSimulatedInterval);
+                        return;
+                    }
+                    const next = wordsMatch[simulatedWordIndex];
+                    highlightTtsWord(current.startIndex + next.index, next.length);
+                    simulatedWordIndex++;
+                }, 350); // Simulated pace of ~170 words per minute
             } else {
                 const utterance = new SpeechSynthesisUtterance(current.text);
                 utterance.rate = typeof ttsRate !== 'undefined' ? ttsRate : 1;
@@ -1469,6 +1497,7 @@
                 };
 
                 utterance.onend = () => {
+                    window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                     globalTtsIndex++;
                     playTtsSequence();
                 };
@@ -1476,6 +1505,7 @@
                 utterance.onerror = (e) => {
                     if (e.error !== 'canceled') {
                         console.error("Speech Error:", e);
+                        window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                         globalTtsIndex++;
                         playTtsSequence();
                     }
@@ -1560,29 +1590,33 @@
                 const isStop = messageType === 'tts-stop' || messageType === 'onSpeechStop' || messageType === 'stop';
 
                 if (isProgress) {
+                    window.ttsHadRealProgress = true;
                     // Extract index and length from multiple possible property names
-                    const rawIndex = typeof data.charIndex !== 'undefined' ? data.charIndex : (typeof data.start !== 'undefined' ? data.start : data.offset);
+                    const rawIndex = typeof data.charIndex !== 'undefined' ? data.charIndex : (typeof data.start !== 'undefined' ? data.start : (typeof data.offset !== 'undefined' ? data.offset : data.location));
                     const rawLength = typeof data.charLength !== 'undefined' ? data.charLength : data.length;
 
-                    if (typeof rawIndex !== 'undefined') {
+                    if (rawIndex !== undefined && rawIndex !== null) {
+                        const parsedIndex = Number(rawIndex);
                         const currentObj = globalTtsQueue[globalTtsIndex];
-                        if (currentObj) {
-                            let validLength = rawLength;
-                            if (!validLength) {
-                                const textRemainder = currentObj.text.substring(rawIndex);
+                        if (currentObj && !isNaN(parsedIndex)) {
+                            let validLength = Number(rawLength);
+                            if (isNaN(validLength) || validLength <= 0) {
+                                const textRemainder = currentObj.text.substring(parsedIndex);
                                 const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
                                 validLength = wordMatch ? wordMatch[0].length : 1;
                             }
                             
                             requestAnimationFrame(() => {
-                                highlightTtsWord(currentObj.startIndex + rawIndex, validLength);
+                                highlightTtsWord(currentObj.startIndex + parsedIndex, validLength);
                             });
                         }
                     }
                 } else if (isFinish) {
+                    window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                     globalTtsIndex++;
                     playTtsSequence();
                 } else if (isStop) {
+                    window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                     const icon = document.getElementById('btn-tts-play').querySelector('i');
                     if (icon) icon.className = 'fas fa-play';
                     isTtsMode = false;
