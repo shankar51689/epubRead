@@ -1356,6 +1356,10 @@
         let currentTtsWordCfi = null;
 
         function getTextRange(startIndex, length) {
+            // CRITICAL FIX: epub.js annotations wrap text in <span> mapping, which mutates the DOM 
+            // and detaches previously cached text nodes. We MUST refresh the node map for every word.
+            getVisibleText();
+
             if (ttsNodesMap.length === 0) return null;
             let targetStart = Number(startIndex);
             let targetEnd = targetStart + Number(length);
