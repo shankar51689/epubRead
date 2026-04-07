@@ -1469,21 +1469,13 @@
             icon.className = 'fas fa-pause';
             showNotification("Reading...");
 
-            // Removed sentence highlight as requested. Only words will be highlighted.
+            // Highlight the entire current sentence/line
+            highlightTtsSentence(current.startIndex, current.length);
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
             } else {
                 const utter = new SpeechSynthesisUtterance(current.text);
-
-                utter.onboundary = (e) => {
-                    if (e.name === 'word') {
-                        const textRemainder = utter.text.substring(e.charIndex);
-                        const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
-                        const validLength = wordMatch ? wordMatch[0].length : 1;
-                        requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, validLength));
-                    }
-                };
 
                 utter.onend = () => {
                     globalTtsIndex++;
@@ -1562,15 +1554,7 @@
                 if (typeof data === 'string') data = JSON.parse(data);
                 if (!data || !data.type) return;
 
-                if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
-                    const currentObj = globalTtsQueue[globalTtsIndex];
-                    if (currentObj) {
-                        const textRemainder = currentObj.text.substring(data.charIndex);
-                        const wordMatch = textRemainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || textRemainder.match(/^\S+/);
-                        const validLength = wordMatch ? wordMatch[0].length : (data.charLength || 5);
-                        requestAnimationFrame(() => highlightTtsWord(currentObj.startIndex + data.charIndex, validLength));
-                    }
-                } else if (data.type === 'tts-finish') {
+                if (data.type === 'tts-finish') {
                     globalTtsIndex++;
                     playTtsSequence();
                 } else if (data.type === 'tts-stop') {
