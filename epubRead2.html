@@ -1364,77 +1364,53 @@
         // Works natively in both Web and React Native WebView. No DOM surgery, no overlay.
 
         function clearTtsWordHighlight() {
-            if (currentTtsWordCfi && currentTtsWordCfi !== 'none') {
+            if (currentTtsWordCfi === "css-highlight") {
+                rendition.getContents().forEach(c => {
+                    try { if (c.window.CSS && c.window.CSS.highlights && c.window.CSS.highlights.has('tts-word')) c.window.CSS.highlights.get('tts-word').clear(); } catch(e){}
+                });
+                currentTtsWordCfi = null;
+            } else if (currentTtsWordCfi) {
                 try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
+                currentTtsWordCfi = null;
             }
-            currentTtsWordCfi = null;
-            // Also hide overlay if present
-            const ol = document.getElementById('tts-word-overlay');
-            if (ol) ol.style.display = 'none';
         }
 
         function highlightTtsWord(charIndex, charLength) {
             clearTtsWordHighlight();
-            if (ttsNodesMap.length === 0) return;
+            const hlRange = getTextRange(charIndex, charLength);
+            if (!hlRange) return;
 
-            // ── Step 1: find start/end node+offset in the ttsNodesMap ──
-            let startNode = null, startOffset = 0;
-            let endNode   = null, endOffset   = 0;
-            const targetStart = charIndex;
-            const targetEnd   = charIndex + charLength;
+            const doc = hlRange.startContainer.ownerDocument;
+            const win = doc.defaultView;
 
-            for (let i = 0; i < ttsNodesMap.length; i++) {
-                const map = ttsNodesMap[i];
-                if (!startNode && targetStart >= map.textStart && targetStart < map.textEnd) {
-                    startNode   = map.node;
-                    startOffset = map.nodeStart + (targetStart - map.textStart);
-                }
-                if (targetEnd > map.textStart && targetEnd <= map.textEnd) {
-                    endNode   = map.node;
-                    endOffset = map.nodeStart + (targetEnd - map.textStart);
-                    break;
-                }
+            // Method 1: CSS Custom Highlight API — zero DOM mutation, zero sound disturbance
+            if (win.CSS && win.CSS.highlights) {
+                try {
+                    if (!win.CSS.highlights.has('tts-word')) {
+                        win.CSS.highlights.set('tts-word', new Highlight());
+                    }
+                    const highlight = win.CSS.highlights.get('tts-word');
+                    highlight.clear();
+                    highlight.add(hlRange);
+                    currentTtsWordCfi = "css-highlight";
+                    return;
+                } catch (e) { }
             }
 
-            if (!startNode) return;
-            // Clamp to same node so CFI is always single-node (safe)
-            if (!endNode || endNode !== startNode) {
-                endNode   = startNode;
-                endOffset = Math.min(startOffset + charLength, startNode.textContent.length);
-            }
-
+            // Method 2: epub.js annotation (same as sentence highlight, just word-scoped)
             try {
-                const doc = startNode.ownerDocument;
-
-                // ── Step 2: build a DOM Range for the word ──
-                const range = doc.createRange();
-                range.setStart(startNode, startOffset);
-                range.setEnd(endNode, endOffset);
-
-                // ── Step 3: convert to CFI ──
                 let contentsList = rendition.getContents();
                 let targetContent = contentsList[0];
-                for (const c of contentsList) {
-                    if (c.document === doc) { targetContent = c; break; }
-                }
+                for (let c of contentsList) { if (c.document === doc) { targetContent = c; break; } }
+                const wordCfi = new ePub.CFI(hlRange, targetContent.cfiBase).toString();
 
-                // Use unique key to avoid duplicate-annotation conflict
-                const wordCfi = new ePub.CFI(range, targetContent.cfiBase).toString();
-
-                // Remove any existing annotation with same CFI first (epub.js throws if duplicate)
-                try { rendition.annotations.remove(wordCfi, 'highlight'); } catch (_) {}
-
-                // ── Step 4: add annotation — bright yellow ──
-                rendition.annotations.add('highlight', wordCfi, {}, null, 'hl-tts-word', {
-                    fill: '#f1c40f',
-                    'fill-opacity': '0.85',
-                    'mix-blend-mode': 'multiply'
+                rendition.annotations.add("highlight", wordCfi, {}, null, "hl-tts-word", {
+                    fill: "#f1c40f",
+                    "fill-opacity": "0.85",
+                    "mix-blend-mode": "multiply"
                 });
                 currentTtsWordCfi = wordCfi;
-
-            } catch (e) {
-                console.warn('tts word highlight error', e);
-            }
+            } catch (e) { }
         }
 
         function removeTtsHighlight() {
