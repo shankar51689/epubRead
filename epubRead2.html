@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Advanced 3D Reader</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -48,7 +48,7 @@
             flex-direction: column;
             background: var(--bg-color);
             font-family: 'Georgia', serif;
-            overflow: hidden;
+            overflow: auto; /* allow scrolling when zoomed */
             user-select: none;
             transition: background 0.3s;
         }
@@ -479,7 +479,7 @@
             flex-grow: 1;
             position: relative;
             background: #111;
-            overflow: hidden;
+            overflow: auto;
             display: flex;
             justify-content: center;
             align-items: center;
