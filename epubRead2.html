@@ -1263,7 +1263,7 @@
         let ttsNodesMap = [];
         let ttsOriginalText = "";
 
-        // Extracts ALL visible text from the current epub iframe - simple and reliable in RN WebView
+        // Extracts ONLY screen-visible text from the current epub iframe page
         function getVisibleText() {
             ttsNodesMap = [];
             ttsOriginalText = "";
@@ -1277,14 +1277,16 @@
                     const win = contents.window;
                     if (!doc || !doc.body) continue;
 
-                    // Walk every text node in the body
+                    const iframeW = win.innerWidth  || doc.documentElement.clientWidth;
+                    const iframeH = win.innerHeight || doc.documentElement.clientHeight;
+
                     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null, false);
                     let node;
                     while ((node = walker.nextNode())) {
                         const parent = node.parentElement;
                         if (!parent) continue;
 
-                        // Skip hidden elements
+                        // Skip CSS-hidden elements
                         try {
                             const st = win.getComputedStyle(parent);
                             if (st.display === 'none' || st.visibility === 'hidden') continue;
@@ -1292,6 +1294,15 @@
 
                         const text = node.textContent;
                         if (!text || text.trim().length === 0) continue;
+
+                        // Only include text that is inside the visible iframe viewport
+                        try {
+                            const rect = parent.getBoundingClientRect();
+                            if (rect.width === 0 || rect.height === 0) continue;
+                            // Must intersect the visible viewport
+                            if (rect.bottom <= 0 || rect.top >= iframeH) continue;
+                            if (rect.right  <= 0 || rect.left >= iframeW) continue;
+                        } catch (_) { continue; }
 
                         ttsNodesMap.push({
                             node:      node,
@@ -1457,25 +1468,33 @@
 
         function playTtsSequence() {
             if (globalTtsIndex >= globalTtsQueue.length) {
+                // All visible-page content spoken — stop, do NOT turn page
                 const icon = document.getElementById('btn-tts-play').querySelector('i');
                 icon.className = 'fas fa-play';
                 removeTtsHighlight();
                 isTtsMode = false;
+                showNotification("Done");
                 return;
             }
 
             const current = globalTtsQueue[globalTtsIndex];
             const icon = document.getElementById('btn-tts-play').querySelector('i');
             icon.className = 'fas fa-pause';
-            showNotification("Reading...");
-
-            // Highlight the entire current sentence/line
-            highlightTtsSentence(current.startIndex, current.length);
 
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tts-speak', text: current.text }));
             } else {
                 const utter = new SpeechSynthesisUtterance(current.text);
+
+                // Word-by-word highlight via onboundary
+                utter.onboundary = (e) => {
+                    if (e.name === 'word') {
+                        const remainder = utter.text.substring(e.charIndex);
+                        const wordMatch = remainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || remainder.match(/^\S+/);
+                        const len = wordMatch ? wordMatch[0].length : 1;
+                        requestAnimationFrame(() => highlightTtsWord(current.startIndex + e.charIndex, len));
+                    }
+                };
 
                 utter.onend = () => {
                     globalTtsIndex++;
@@ -1484,7 +1503,6 @@
 
                 utter.onerror = (e) => {
                     if (e.error !== 'canceled') {
-                        console.error("Speech Error:", e);
                         globalTtsIndex++;
                         playTtsSequence();
                     }
@@ -1554,7 +1572,16 @@
                 if (typeof data === 'string') data = JSON.parse(data);
                 if (!data || !data.type) return;
 
-                if (data.type === 'tts-finish') {
+                if (data.type === 'tts-progress' && typeof data.charIndex !== 'undefined') {
+                    // Word-by-word highlight driven by native TTS progress
+                    const currentObj = globalTtsQueue[globalTtsIndex];
+                    if (currentObj) {
+                        const remainder = currentObj.text.substring(data.charIndex);
+                        const wordMatch = remainder.match(/^[\w\u00C0-\u017F\u0400-\u04FF]+/) || remainder.match(/^\S+/);
+                        const len = wordMatch ? wordMatch[0].length : (data.charLength || 5);
+                        requestAnimationFrame(() => highlightTtsWord(currentObj.startIndex + data.charIndex, len));
+                    }
+                } else if (data.type === 'tts-finish') {
                     globalTtsIndex++;
                     playTtsSequence();
                 } else if (data.type === 'tts-stop') {
