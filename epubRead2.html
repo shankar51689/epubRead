@@ -1356,10 +1356,6 @@
         let currentTtsWordCfi = null;
 
         function getTextRange(startIndex, length) {
-            // CRITICAL FIX: epub.js annotations wrap text in <span> mapping, which mutates the DOM 
-            // and detaches previously cached text nodes. We MUST refresh the node map for every word.
-            getVisibleText();
-
             if (ttsNodesMap.length === 0) return null;
             let targetStart = Number(startIndex);
             let targetEnd = targetStart + Number(length);
@@ -1594,13 +1590,19 @@
                 const isStop = messageType === 'tts-stop' || messageType === 'onSpeechStop' || messageType === 'stop';
 
                 if (isProgress) {
-                    window.ttsHadRealProgress = true;
                     // Extract index and length from multiple possible property names
                     const rawIndex = typeof data.charIndex !== 'undefined' ? data.charIndex : (typeof data.start !== 'undefined' ? data.start : (typeof data.offset !== 'undefined' ? data.offset : data.location));
                     const rawLength = typeof data.charLength !== 'undefined' ? data.charLength : data.length;
 
                     if (rawIndex !== undefined && rawIndex !== null) {
                         const parsedIndex = Number(rawIndex);
+                        
+                        // Trust native progress and kill simulator ONLY if we see active string advancement
+                        if (parsedIndex > 0) {
+                            window.ttsHadRealProgress = true;
+                            window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
+                        }
+
                         const currentObj = globalTtsQueue[globalTtsIndex];
                         if (currentObj && !isNaN(parsedIndex)) {
                             let validLength = Number(rawLength);
