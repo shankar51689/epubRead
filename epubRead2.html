@@ -1401,20 +1401,26 @@
             } catch (e) { return null; }
         }
 
-        // ── Floating overlay approach: NO DOM surgery, NO audio disturbance ──
-        const _ttsOverlay = document.getElementById('tts-word-overlay');
+        // ── Word highlight using EPUB.js CFI annotations (same method as epubReader3 sentence highlight) ──
+        // Works natively in both Web and React Native WebView. No DOM surgery, no overlay.
 
         function clearTtsWordHighlight() {
-            if (_ttsOverlay) _ttsOverlay.style.display = 'none';
+            if (currentTtsWordCfi && currentTtsWordCfi !== 'none') {
+                try { rendition.annotations.remove(currentTtsWordCfi, 'highlight'); } catch (e) { }
+            }
             currentTtsWordCfi = null;
+            // Also hide overlay if present
+            const ol = document.getElementById('tts-word-overlay');
+            if (ol) ol.style.display = 'none';
         }
 
         function highlightTtsWord(charIndex, charLength) {
+            clearTtsWordHighlight();
             if (ttsNodesMap.length === 0) return;
 
-            // Find the matching text node and offsets
+            // ── Step 1: find start/end node+offset in the ttsNodesMap ──
             let startNode = null, startOffset = 0;
-            let endNode = null, endOffset = 0;
+            let endNode   = null, endOffset   = 0;
             const targetStart = charIndex;
             const targetEnd   = charIndex + charLength;
 
@@ -1432,71 +1438,38 @@
             }
 
             if (!startNode) return;
-
-            // Clamp end within same node if needed
+            // Clamp to same node so CFI is always single-node (safe)
             if (!endNode || endNode !== startNode) {
                 endNode   = startNode;
                 endOffset = Math.min(startOffset + charLength, startNode.textContent.length);
             }
 
             try {
-                const iframeDoc = startNode.ownerDocument;
-                const iframeWin = iframeDoc.defaultView;
+                const doc = startNode.ownerDocument;
 
-                // Build a Range (read-only, no DOM mutation)
-                const range = iframeDoc.createRange();
+                // ── Step 2: build a DOM Range for the word ──
+                const range = doc.createRange();
                 range.setStart(startNode, startOffset);
                 range.setEnd(endNode, endOffset);
 
-                // Get word rect in iframe coordinate space
-                let wordRect = range.getBoundingClientRect();
-                // Fallback: some Android WebViews return 0-size for getBoundingClientRect on ranges
-                if (!wordRect || wordRect.width === 0) {
-                    const rects = range.getClientRects();
-                    if (rects && rects.length > 0) wordRect = rects[0];
+                // ── Step 3: convert to CFI (same as epubReader3's highlightTtsSentence) ──
+                let contentsList = rendition.getContents();
+                let targetContent = contentsList[0];
+                for (let c of contentsList) {
+                    if (c.document === doc) { targetContent = c; break; }
                 }
-                if (!wordRect || wordRect.width === 0) return;
+                const wordCfi = new ePub.CFI(range, targetContent.cfiBase).toString();
 
-                // ── Get iframe offset in the parent page ──
-                // Method 1: frameElement (works in RN WebView — same-origin, no cross-doc query needed)
-                // Method 2: parent document search (web browser fallback)
-                let iframeOffsetX = 0, iframeOffsetY = 0;
-                try {
-                    // From INSIDE the iframe's window, frameElement is the <iframe> in the parent doc
-                    const frameEl = iframeWin.frameElement;
-                    if (frameEl) {
-                        const iframeRect = frameEl.getBoundingClientRect();
-                        iframeOffsetX = iframeRect.left;
-                        iframeOffsetY = iframeRect.top;
-                    }
-                } catch (e1) {
-                    // Fallback: search from parent (standard browser)
-                    try {
-                        const iframes = document.querySelectorAll('#viewer iframe');
-                        for (const iframe of iframes) {
-                            try {
-                                if (iframe.contentDocument === iframeDoc) {
-                                    const iframeRect = iframe.getBoundingClientRect();
-                                    iframeOffsetX = iframeRect.left;
-                                    iframeOffsetY = iframeRect.top;
-                                    break;
-                                }
-                            } catch (_) {}
-                        }
-                    } catch (e2) {}
-                }
-
-                // Position the overlay in the main document
-                const ol = _ttsOverlay;
-                ol.style.left    = (iframeOffsetX + wordRect.left)   + 'px';
-                ol.style.top     = (iframeOffsetY + wordRect.top)    + 'px';
-                ol.style.width   = wordRect.width  + 'px';
-                ol.style.height  = wordRect.height + 'px';
-                ol.style.display = 'block';
-                currentTtsWordCfi = 'overlay';
+                // ── Step 4: add annotation — bright yellow, high opacity ──
+                rendition.annotations.add('highlight', wordCfi, {}, null, 'hl-tts-word', {
+                    fill: '#f1c40f',
+                    'fill-opacity': '0.85',
+                    'mix-blend-mode': 'multiply'
+                });
+                currentTtsWordCfi = wordCfi;
 
             } catch (e) {
-                console.warn('tts overlay error', e);
+                console.warn('tts word highlight error', e);
             }
         }
 
