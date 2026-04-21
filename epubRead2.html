@@ -683,6 +683,10 @@
         let currentSelection = { cfiRange: null, text: "", isEditing: false, existingCfi: null };
         let selectedColor = 'yellow';
 
+        // *** NAVIGATION LOCK — prevents concurrent page turns ***
+        let isNavigating = false;
+        let navigationTimeout = null;
+
         // Bridge State for React Native
         let isSpeakingBridge = false;
 
@@ -690,6 +694,11 @@
         let isTtsMode = false;
         let ttsQueue = [];
         let ttsHighlightCfiRange = null;
+
+        // Track last known orientation to detect actual changes
+        let lastKnownOrientation = null;
+        // Debounce timer for resize
+        let resizeDebounceTimer = null;
 
         const peel = document.getElementById('page-peel');
         const peelGrad = document.getElementById('peel-gradient');
@@ -714,11 +723,33 @@
             sepia: { body: { "color": "#5b4636 !important", "background": "#f4ecd8 !important", "font-family": "Georgia" } }
         };
 
+        /**
+         * Acquires a navigation lock. Returns true if lock acquired, false if already navigating.
+         * Auto-releases after a timeout to prevent permanent deadlock.
+         */
+        function acquireNavLock() {
+            if (isNavigating) return false;
+            isNavigating = true;
+            // Safety: auto-release lock after 2 seconds max
+            clearTimeout(navigationTimeout);
+            navigationTimeout = setTimeout(() => {
+                isNavigating = false;
+            }, 2000);
+            return true;
+        }
+
+        function releaseNavLock() {
+            isNavigating = false;
+            clearTimeout(navigationTimeout);
+        }
+
         function initReader(url) {
             book = ePub(url);
 
             // Fix: Show single column in portrait mode (mobile/tab)
             const isLandscape = window.innerWidth > window.innerHeight;
+            lastKnownOrientation = isLandscape ? 'landscape' : 'portrait';
+
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
@@ -728,12 +759,25 @@
             });
 
             window.addEventListener('resize', () => {
-                const isLand = window.innerWidth > window.innerHeight;
-                if (rendition && typeof rendition.spread === 'function') {
-                    rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
-                }
-                // Re-apply gap fix after orientation change
-                setTimeout(startSpreadGapObserver, 300);
+                // Debounce resize to prevent rapid re-renders during orientation animation
+                clearTimeout(resizeDebounceTimer);
+                resizeDebounceTimer = setTimeout(() => {
+                    const isLand = window.innerWidth > window.innerHeight;
+                    const newOrientation = isLand ? 'landscape' : 'portrait';
+
+                    // Only act if orientation actually changed
+                    if (newOrientation === lastKnownOrientation) return;
+                    lastKnownOrientation = newOrientation;
+
+                    if (rendition && typeof rendition.spread === 'function') {
+                        rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
+                    }
+
+                    // After orientation change, resize the rendition to fit new dimensions
+                    if (rendition) {
+                        rendition.resize();
+                    }
+                }, 350);
             });
 
             let savedLocation = null;
@@ -766,88 +810,45 @@
                 `;
                     contents.document.head.appendChild(style);
 
-                    // ── Gap fix: override epub.js body padding that creates the center gap ──
-                    // CRITICAL: epub.js calls body.style.setProperty('padding-left/right', X, 'important')
-                    // Inline !important BEATS stylesheet !important — only another setProperty
-                    // with 'important' can override it. We poll + observe to catch when epub.js
-                    // applies it and immediately reset to 0.
+                    // ── SAFE gap fix: only adjust body padding, NOT all child elements ──
+                    // The old code was setting width/height/margin/padding on EVERY div and span,
+                    // which broke epub.js layout calculations and caused stuck screens.
                     (function applyGapFix() {
                         try {
                             const innerDoc = contents.document;
                             const body = innerDoc && innerDoc.body;
                             if (!body) return;
 
-                            function forceZeroPadding() {
+                            function safeBodyPadding() {
                                 try {
                                     const isLandscape = window.innerWidth > window.innerHeight;
                                     if (!isLandscape) return;
 
-                                    // Directly override with inline !important — the only way to
-                                    // beat epub.js's own inline !important setProperty calls
-                                    // Apply healthy margins instead of zeroing out in landscape
-                                    body.style.setProperty('padding-left', '40px', 'important');
-                                    body.style.setProperty('padding-right', '40px', 'important');
-                                    body.style.setProperty('padding-top', '20px', 'important');
-                                    body.style.setProperty('padding-bottom', '20px', 'important');
-                                    body.style.setProperty('margin', '0px', 'important');
+                                    // Only adjust body padding — leave everything else to epub.js
+                                    body.style.setProperty('padding-left', '20px', 'important');
+                                    body.style.setProperty('padding-right', '20px', 'important');
+                                    body.style.setProperty('padding-top', '10px', 'important');
+                                    body.style.setProperty('padding-bottom', '10px', 'important');
                                     body.style.setProperty('overflow', 'hidden', 'important');
-
-                                    // Handle fixed-layout books
-                                    // Use '100%' in landscape so it stays within the half-page column
-                                    // Use '100vw' in portrait (since column = full screen)
-                                    const sizeVal = isLandscape ? '100%' : '100vw';
-                                    
-                                    body.style.setProperty('width', sizeVal, 'important');
-                                    body.style.setProperty('height', '100%', 'important');
-                                    body.style.setProperty('max-width', sizeVal, 'important');
-                                    body.style.setProperty('max-height', '100%', 'important');
-                                    body.style.setProperty('transform', 'none', 'important');
-
-                                    // Also kill fixed sizing/transforms on any major container divs inside body
-                                    const containers = body.querySelectorAll('div, span');
-                                    containers.forEach(div => {
-                                        div.style.setProperty('width', sizeVal, 'important');
-                                        div.style.setProperty('height', '100%', 'important');
-                                        div.style.setProperty('max-width', sizeVal, 'important');
-                                        div.style.setProperty('max-height', '100%', 'important');
-                                        div.style.setProperty('margin', '0', 'important');
-                                        div.style.setProperty('padding', '0', 'important');
-                                        div.style.setProperty('transform', 'none', 'important');
-                                    });
-
-                                    // Stretch images to fill the half-page exactly 
-                                    const images = body.querySelectorAll('img, svg, image');
-                                    const imgWidth = isLandscape ? '100%' : '100vw';
-                                    images.forEach(img => {
-                                        img.style.setProperty('width', imgWidth, 'important');
-                                        img.style.setProperty('height', '100%', 'important');
-                                        img.style.setProperty('max-width', imgWidth, 'important');
-                                        img.style.setProperty('max-height', '100%', 'important');
-                                        img.style.setProperty('margin', '0', 'important');
-                                        img.style.setProperty('padding', '0', 'important');
-                                        img.style.setProperty('display', 'block', 'important');
-                                        img.style.setProperty('object-fit', 'cover', 'important');
-                                    });
                                 } catch (e) { }
                             }
 
                             // Run immediately
-                            forceZeroPadding();
+                            safeBodyPadding();
 
-                            // Observe any future style changes epub.js makes on body
+                            // Observe body style changes (epub.js may override)
                             if (typeof MutationObserver !== 'undefined') {
                                 const observer = new MutationObserver(() => {
-                                    forceZeroPadding();
+                                    safeBodyPadding();
                                 });
                                 observer.observe(body, { attributes: true, attributeFilter: ['style'] });
-
-                                // Disconnect after 3 seconds (epub.js is done by then)
-                                setTimeout(() => observer.disconnect(), 3000);
+                                // Disconnect after 2 seconds (epub.js is done by then)
+                                setTimeout(() => observer.disconnect(), 2000);
                             }
 
-                            // Also poll a few times in case observer fires too fast
-                            [100, 300, 600, 1000].forEach(delay => {
-                                setTimeout(forceZeroPadding, delay);
+                            // Also poll a few times as safety net
+                            [100, 300, 600].forEach(delay => {
+                                setTimeout(safeBodyPadding, delay);
                             });
 
                         } catch (e) { console.warn('gap-fix error:', e); }
@@ -864,12 +865,10 @@
                     if (currentTheme === 'dark') applyDarkThemeForce(contents);
                 });
 
-                // ── Gap-killer: install a persistent MutationObserver on rendered ──
-                rendition.on('rendered', () => {
-                    startSpreadGapObserver();
-                });
-
                 rendition.on('relocated', (location) => {
+                    // Release navigation lock when page has settled
+                    releaseNavLock();
+
                     try { localStorage.setItem(`book-location_${bookId}`, location.start.cfi); } catch (e) { }
                     checkBookmarkStatus(location.start.cfi);
 
@@ -941,112 +940,6 @@
                 });
             })
         }
-
-        /* --- SPREAD GAP REMOVAL (outer DOM fix via MutationObserver) --- */
-        let _spreadGapObserver = null;
-        let _applyingLayout = false;
-
-        function applySpreadLayout() {
-            if (_applyingLayout) return; // prevent re-entrancy
-            _applyingLayout = true;
-            try {
-                const isLandscape = window.innerWidth > window.innerHeight;
-                const viewerEl = document.getElementById('viewer');
-                if (!viewerEl) return;
-
-                const container = viewerEl.querySelector('.epub-container');
-                if (!container) return;
-
-                const views = Array.from(container.querySelectorAll('.epub-view'));
-                if (views.length !== 2 || !isLandscape) return;
-
-                const totalW = viewerEl.offsetWidth;
-                const totalH = viewerEl.offsetHeight;
-                const gap = 30; // pixels between columns
-                const sideMargin = 20; // pixels from outer edges
-                const availableW = totalW - (sideMargin * 2) - gap;
-                const halfW = Math.floor(availableW / 2);
-                const rightW = availableW - halfW;
-
-                // Force container to fill viewer absolutely
-                container.style.position = 'absolute';
-                container.style.top = '0';
-                container.style.left = '0';
-                container.style.width = totalW + 'px';
-                container.style.height = totalH + 'px';
-                container.style.display = 'flex';
-                container.style.flexDirection = 'row';
-                container.style.flexWrap = 'nowrap';
-                container.style.justifyContent = 'center';
-                container.style.alignItems = 'center';
-                container.style.gap = gap + 'px';
-
-                // Left page
-                _sizeView(views[0], halfW, totalH);
-                // Right page
-                _sizeView(views[1], rightW, totalH);
-            } catch (e) {
-                console.warn('applySpreadLayout error:', e);
-            } finally {
-                _applyingLayout = false;
-            }
-        }
-
-        function _sizeView(view, w, h) {
-            view.style.cssText = [
-                'margin:0',
-                'padding:0',
-                'border:none',
-                'overflow:hidden',
-                'flex:none',
-                'width:' + w + 'px',
-                'height:' + h + 'px',
-                'position:relative',
-                'display:block'
-            ].join(';');
-            const iframe = view.querySelector('iframe');
-            if (iframe) {
-                iframe.style.cssText = [
-                    'margin:0',
-                    'padding:0',
-                    'border:none',
-                    'display:block',
-                    'width:' + w + 'px',
-                    'height:' + h + 'px'
-                ].join(';');
-            }
-        }
-
-        function startSpreadGapObserver() {
-            if (_spreadGapObserver) {
-                _spreadGapObserver.disconnect();
-                _spreadGapObserver = null;
-            }
-
-            applySpreadLayout();
-
-            const viewerEl = document.getElementById('viewer');
-            if (!viewerEl) return;
-
-            _spreadGapObserver = new MutationObserver(() => {
-                applySpreadLayout();
-            });
-            _spreadGapObserver.observe(viewerEl, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['style', 'width', 'height']
-            });
-
-            setTimeout(() => {
-                if (_spreadGapObserver) {
-                    _spreadGapObserver.disconnect();
-                    _spreadGapObserver = null;
-                }
-            }, 2000);
-        }
-
-        function removeSpreadGap() { startSpreadGapObserver(); }
 
         /* --- HIGHLIGHT LOGIC --- */
 
@@ -1937,11 +1830,27 @@
             dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0) ${clipX - 10}%, rgba(0,0,0,0.5) ${clipX}%)`;
             dropShadow.style.opacity = progress;
         }
+
         function finishNext() {
+            if (!acquireNavLock()) {
+                resetFlip();
+                return;
+            }
             peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
             peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
-            rendition.next().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.clipPath = "none"; peel.style.transform = "none"; }, 300); });
+            rendition.next().then(() => {
+                setTimeout(() => {
+                    peel.style.display = "none"; dropShadow.style.display = "none";
+                    peel.style.clipPath = "none"; peel.style.transform = "none";
+                    // releaseNavLock is called by 'relocated' event, but safety fallback:
+                    setTimeout(releaseNavLock, 500);
+                }, 300);
+            }).catch(() => {
+                resetFlip();
+                releaseNavLock();
+            });
         }
+
         function updatePeelPrev(diff) {
             const progress = Math.min(Math.max(diff / width, 0), 1);
             peel.style.display = "block"; dropShadow.style.display = "block";
@@ -1953,13 +1862,63 @@
             dropShadow.style.background = `linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) ${clipX}%)`;
             dropShadow.style.opacity = progress;
         }
+
         function finishPrev() {
+            if (!acquireNavLock()) {
+                resetFlip();
+                return;
+            }
             peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
-            rendition.prev().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; }, 100); });
+            rendition.prev().then(() => {
+                setTimeout(() => {
+                    peel.style.display = "none"; dropShadow.style.display = "none";
+                    // releaseNavLock is called by 'relocated' event, but safety fallback:
+                    setTimeout(releaseNavLock, 500);
+                }, 100);
+            }).catch(() => {
+                resetFlip();
+                releaseNavLock();
+            });
         }
-        function resetFlip() { peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; }
-        function triggerNext() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); }; animate(); }
-        function triggerPrev() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); }; animate(); }
+
+        function resetFlip() {
+            peel.style.transition = "all 0.3s ease-out";
+            peel.style.clipPath = "none";
+            peel.style.display = "none";
+            dropShadow.style.display = "none";
+        }
+
+        function triggerNext() {
+            if (isNavigating) return; // Block if already navigating
+            width = window.innerWidth;
+            let start = 0;
+            const animate = () => {
+                start += 25;
+                if (start < width) {
+                    updatePeelNext(start);
+                    requestAnimationFrame(animate);
+                } else {
+                    finishNext();
+                }
+            };
+            animate();
+        }
+
+        function triggerPrev() {
+            if (isNavigating) return; // Block if already navigating
+            width = window.innerWidth;
+            let start = 0;
+            const animate = () => {
+                start += 25;
+                if (start < width) {
+                    updatePeelPrev(start);
+                    requestAnimationFrame(animate);
+                } else {
+                    finishPrev();
+                }
+            };
+            animate();
+        }
 
         let initialPinchDistance = null;
         let isPinching = false;
@@ -1983,6 +1942,8 @@
                 }
 
                 if (e.touches && e.touches.length === 1) {
+                    // Don't start drag if navigation is in progress
+                    if (isNavigating) return;
                     startX = e.changedTouches[0].screenX;
                     isDragging = true;
                     isPinching = false;
@@ -2033,6 +1994,7 @@
 
             rendition.on("mousedown", e => {
                 if (isHighlightMode) return;
+                if (isNavigating) return; // Block if already navigating
                 startX = e.screenX;
                 isDragging = true;
                 width = window.innerWidth;
