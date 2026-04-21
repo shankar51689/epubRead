@@ -121,7 +121,6 @@
             #notification {
                 bottom: 10px;
                 font-size: 11px;
-                padding: 4px 12px;
             }
 
             #sidebar {
@@ -757,14 +756,19 @@
         function initReader(url) {
             book = ePub(url);
 
-            // Fix: Show single column in portrait mode (mobile/tab)
+            // Detect if device is a phone (small screen) vs tablet/desktop
+            // In landscape on phones, height is small (< 500px typically)
+            // On phones, ALWAYS use single page mode (spread: none) — both portrait AND landscape
+            // On tablets/desktops, use spread in landscape
             const isLandscape = window.innerWidth > window.innerHeight;
+            const isPhone = Math.min(window.innerWidth, window.innerHeight) < 600;
+            
             rendition = book.renderTo("viewer", {
                 width: "100%",
                 height: "100%",
                 flow: "paginated",
-                spread: isLandscape ? "auto" : "none",
-                minSpreadWidth: isLandscape ? 0 : 815  // Mobile landscape: 0, Tablet/Portrait: 815
+                spread: (isLandscape && !isPhone) ? "auto" : "none",
+                minSpreadWidth: 900
             });
 
             let _resizeDebounce = null;
@@ -774,20 +778,20 @@
                 clearTimeout(_resizeDebounce);
                 _resizeDebounce = setTimeout(() => {
                     const isLand = window.innerWidth > window.innerHeight;
+                    const isSmall = Math.min(window.innerWidth, window.innerHeight) < 600;
                     const newOrientation = isLand ? 'landscape' : 'portrait';
 
                     if (rendition && typeof rendition.spread === 'function') {
-                        rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
+                        // Phones: always single page. Tablets: spread in landscape only
+                        rendition.spread((isLand && !isSmall) ? "auto" : "none", 900);
                     }
 
                     // Auto-switch zoom on orientation change
                     if (newOrientation !== _lastOrientation) {
                         _lastOrientation = newOrientation;
                         if (isLand) {
-                            // Landscape: set 70% zoom
                             currentFontSize = 70;
                         } else {
-                            // Portrait: set 100% zoom
                             currentFontSize = 100;
                         }
                         rendition.themes.fontSize(currentFontSize + "%");
@@ -799,7 +803,7 @@
                         rendition.resize();
                     }
 
-                    // Re-apply gap fix after orientation change
+                    // Re-apply layout fix
                     setTimeout(startSpreadGapObserver, 300);
                 }, 250);
             });
@@ -816,8 +820,7 @@
                 rendition.themes.select("light");
 
                 // Set initial zoom based on orientation
-                const initLandscape = window.innerWidth > window.innerHeight;
-                if (initLandscape) {
+                if (window.innerWidth > window.innerHeight) {
                     currentFontSize = 70;
                     rendition.themes.fontSize("70%");
                 }
@@ -858,27 +861,32 @@
                                     const isLandscape = window.innerWidth > window.innerHeight;
                                     if (!isLandscape) return;
 
-                                    // Only fix body padding - do NOT touch div/span widths
-                                    body.style.setProperty('padding-left', '20px', 'important');
-                                    body.style.setProperty('padding-right', '20px', 'important');
-                                    body.style.setProperty('padding-top', '10px', 'important');
-                                    body.style.setProperty('padding-bottom', '10px', 'important');
+                                    // Light padding for landscape — don't touch div/span widths
+                                    body.style.setProperty('padding-left', '15px', 'important');
+                                    body.style.setProperty('padding-right', '15px', 'important');
+                                    body.style.setProperty('padding-top', '8px', 'important');
+                                    body.style.setProperty('padding-bottom', '8px', 'important');
                                     body.style.setProperty('margin', '0px', 'important');
                                     body.style.setProperty('overflow', 'hidden', 'important');
                                     body.style.setProperty('box-sizing', 'border-box', 'important');
-                                    body.style.setProperty('width', '100%', 'important');
-                                    body.style.setProperty('max-width', '100%', 'important');
 
-                                    // Only fix images - contain them, don't crop
-                                    const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
+                                    // Images: fit within container, never crop
+                                    const images = body.querySelectorAll('img');
                                     images.forEach(img => {
                                         img.style.setProperty('max-width', '100%', 'important');
-                                        img.style.setProperty('max-height', '100%', 'important');
-                                        img.style.setProperty('width', 'auto', 'important');
                                         img.style.setProperty('height', 'auto', 'important');
+                                        img.style.setProperty('max-height', '95vh', 'important');
                                         img.style.setProperty('object-fit', 'contain', 'important');
                                         img.style.setProperty('display', 'block', 'important');
                                         img.style.setProperty('margin', '0 auto', 'important');
+                                    });
+
+                                    // SVG images (not highlight SVGs)
+                                    const svgs = body.querySelectorAll('svg:not(.epubjs-hl)');
+                                    svgs.forEach(svg => {
+                                        svg.style.setProperty('max-width', '100%', 'important');
+                                        svg.style.setProperty('height', 'auto', 'important');
+                                        svg.style.setProperty('display', 'block', 'important');
                                     });
                                 } catch (e) { }
                             }
@@ -1014,30 +1022,50 @@
 
                 const totalW = viewerEl.offsetWidth;
                 const totalH = viewerEl.offsetHeight;
+                const isPhone = Math.min(window.innerWidth, window.innerHeight) < 600;
 
-                container.style.position = 'absolute';
-                container.style.top = '0';
-                container.style.left = '0';
-                container.style.width = totalW + 'px';
-                container.style.height = totalH + 'px';
-                container.style.display = 'flex';
-                container.style.flexDirection = 'row';
-                container.style.flexWrap = 'nowrap';
-                container.style.justifyContent = 'center';
-                container.style.alignItems = 'stretch';
-                container.style.overflow = 'hidden';
+                // Phones: single page fills entire width
+                if (isPhone || views.length === 1) {
+                    container.style.position = 'absolute';
+                    container.style.top = '0';
+                    container.style.left = '0';
+                    container.style.width = totalW + 'px';
+                    container.style.height = totalH + 'px';
+                    container.style.display = 'flex';
+                    container.style.justifyContent = 'center';
+                    container.style.alignItems = 'stretch';
+                    container.style.overflow = 'hidden';
+                    container.style.gap = '0';
 
-                if (views.length === 2) {
-                    const gap = 2;
+                    if (views[0]) {
+                        _sizeView(views[0], totalW, totalH);
+                    }
+                    // Hide any second view that might exist
+                    if (views[1]) {
+                        views[1].style.display = 'none';
+                    }
+                } else if (views.length === 2) {
+                    // Tablets/desktops: 2-column spread
+                    const gap = 4;
                     const availableW = totalW - gap;
                     const halfW = Math.floor(availableW / 2);
                     const rightW = availableW - halfW;
+
+                    container.style.position = 'absolute';
+                    container.style.top = '0';
+                    container.style.left = '0';
+                    container.style.width = totalW + 'px';
+                    container.style.height = totalH + 'px';
+                    container.style.display = 'flex';
+                    container.style.flexDirection = 'row';
+                    container.style.flexWrap = 'nowrap';
+                    container.style.justifyContent = 'center';
+                    container.style.alignItems = 'stretch';
+                    container.style.overflow = 'hidden';
                     container.style.gap = gap + 'px';
+
                     _sizeView(views[0], halfW, totalH);
                     _sizeView(views[1], rightW, totalH);
-                } else if (views.length === 1) {
-                    container.style.gap = '0';
-                    _sizeView(views[0], totalW, totalH);
                 }
             } catch (e) {
                 console.warn('applySpreadLayout error:', e);
@@ -1084,11 +1112,10 @@
 
             let _debounceTimer = null;
             _spreadGapObserver = new MutationObserver(() => {
-                // Debounce to prevent feedback loops during page transitions
                 if (_debounceTimer) clearTimeout(_debounceTimer);
                 _debounceTimer = setTimeout(() => {
                     applySpreadLayout();
-                }, 50);
+                }, 80);
             });
             _spreadGapObserver.observe(viewerEl, {
                 childList: true,
@@ -1999,25 +2026,16 @@
         function finishNext() {
             peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
             peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
-            // Safety: always clean up peel after max 1.5s even if rendition.next() hangs
-            const safetyCleanup = setTimeout(() => {
+            const cleanup = () => {
                 peel.style.display = "none"; dropShadow.style.display = "none";
                 peel.style.clipPath = "none"; peel.style.transform = "none";
                 peel.style.transition = "none"; dropShadow.style.transition = "none";
-            }, 1500);
+                isPageChanging = false;
+            };
+            const safetyTimer = setTimeout(cleanup, 1500);
             rendition.next().then(() => {
-                setTimeout(() => {
-                    clearTimeout(safetyCleanup);
-                    peel.style.display = "none"; dropShadow.style.display = "none";
-                    peel.style.clipPath = "none"; peel.style.transform = "none";
-                    peel.style.transition = "none"; dropShadow.style.transition = "none";
-                }, 300);
-            }).catch(() => {
-                clearTimeout(safetyCleanup);
-                peel.style.display = "none"; dropShadow.style.display = "none";
-                peel.style.clipPath = "none"; peel.style.transform = "none";
-                peel.style.transition = "none"; dropShadow.style.transition = "none";
-            });
+                setTimeout(() => { clearTimeout(safetyTimer); cleanup(); }, 300);
+            }).catch(() => { clearTimeout(safetyTimer); cleanup(); });
         }
         function updatePeelPrev(diff) {
             const progress = Math.min(Math.max(diff / width, 0), 1);
@@ -2032,24 +2050,16 @@
         }
         function finishPrev() {
             peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
-            const safetyCleanup = setTimeout(() => {
+            const cleanup = () => {
                 peel.style.display = "none"; dropShadow.style.display = "none";
                 peel.style.clipPath = "none"; peel.style.transform = "none";
                 peel.style.transition = "none"; dropShadow.style.transition = "none";
-            }, 1500);
+                isPageChanging = false;
+            };
+            const safetyTimer = setTimeout(cleanup, 1500);
             rendition.prev().then(() => {
-                setTimeout(() => {
-                    clearTimeout(safetyCleanup);
-                    peel.style.display = "none"; dropShadow.style.display = "none";
-                    peel.style.clipPath = "none"; peel.style.transform = "none";
-                    peel.style.transition = "none"; dropShadow.style.transition = "none";
-                }, 100);
-            }).catch(() => {
-                clearTimeout(safetyCleanup);
-                peel.style.display = "none"; dropShadow.style.display = "none";
-                peel.style.clipPath = "none"; peel.style.transform = "none";
-                peel.style.transition = "none"; dropShadow.style.transition = "none";
-            });
+                setTimeout(() => { clearTimeout(safetyTimer); cleanup(); }, 150);
+            }).catch(() => { clearTimeout(safetyTimer); cleanup(); });
         }
         function resetFlip() { peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.transform = "none"; isPageChanging = false; }
         
@@ -2062,11 +2072,7 @@
             const animate = () => {
                 start += 35;
                 if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); }
-                else {
-                    finishNext();
-                    // Safety unlock after animation completes
-                    setTimeout(() => { isPageChanging = false; }, 600);
-                }
+                else { finishNext(); }
             };
             animate();
         }
@@ -2078,10 +2084,7 @@
             const animate = () => {
                 start += 35;
                 if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); }
-                else {
-                    finishPrev();
-                    setTimeout(() => { isPageChanging = false; }, 600);
-                }
+                else { finishPrev(); }
             };
             animate();
         }
@@ -2152,8 +2155,8 @@
                 isDragging = false;
                 if (isPageChanging) { resetFlip(); return; }
                 const diff = startX - e.changedTouches[0].screenX;
-                if (diff > 100) { isPageChanging = true; finishNext(); setTimeout(() => { isPageChanging = false; }, 600); }
-                else if (diff < -100) { isPageChanging = true; finishPrev(); setTimeout(() => { isPageChanging = false; }, 600); }
+                if (diff > 100) { isPageChanging = true; finishNext(); }
+                else if (diff < -100) { isPageChanging = true; finishPrev(); }
                 else resetFlip();
             });
 
@@ -2177,8 +2180,8 @@
                 isDragging = false;
                 if (isPageChanging) { resetFlip(); return; }
                 const diff = startX - e.screenX;
-                if (diff > 100) { isPageChanging = true; finishNext(); setTimeout(() => { isPageChanging = false; }, 600); }
-                else if (diff < -100) { isPageChanging = true; finishPrev(); setTimeout(() => { isPageChanging = false; }, 600); }
+                if (diff > 100) { isPageChanging = true; finishNext(); }
+                else if (diff < -100) { isPageChanging = true; finishPrev(); }
                 else resetFlip();
             });
         }
