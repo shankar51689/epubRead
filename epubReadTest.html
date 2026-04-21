@@ -69,24 +69,68 @@
 
         @media screen and (orientation: landscape) {
             #toolbar {
-                height: 46px;
-                padding: 4px 12px;
+                height: 40px;
+                padding: 2px 10px;
+                flex-wrap: nowrap !important;
+                gap: 4px;
             }
 
             #toolbar button {
-                width: 34px;
-                height: 34px;
-                font-size: 14px;
+                width: 30px;
+                height: 30px;
+                font-size: 13px;
+                min-width: 30px;
             }
 
             .helper-text {
                 display: none;
             }
 
-            #viewer {
-                /* Add a bit of breathing room at the top/bottom */
-                padding-top: 5px;
-                padding-bottom: 5px;
+            .toolbar-group {
+                gap: 4px;
+            }
+
+            .group-meta {
+                border-bottom: none !important;
+                padding-bottom: 0 !important;
+                width: auto !important;
+                order: 0 !important;
+            }
+
+            .group-nav {
+                order: 0 !important;
+                flex-grow: 0 !important;
+            }
+
+            .group-settings {
+                order: 0 !important;
+                flex-grow: 0 !important;
+            }
+
+            .search-container.active #search-input {
+                width: 120px;
+                max-width: 120px;
+            }
+
+            #page-counter {
+                bottom: 4px;
+                font-size: 10px;
+                padding: 2px 8px;
+            }
+
+            #notification {
+                bottom: 10px;
+                font-size: 11px;
+                padding: 4px 12px;
+            }
+
+            #sidebar {
+                max-width: 280px;
+                width: 70%;
+            }
+
+            #highlight-menu {
+                max-width: 200px;
             }
         }
 
@@ -295,7 +339,7 @@
         }
 
         /* ===== SIDEBAR & LAYOUT ===== */
-        @media (max-width: 768px) {
+        @media (max-width: 768px) and (orientation: portrait) {
             #toolbar {
                 flex-wrap: wrap;
                 height: auto;
@@ -727,13 +771,70 @@
                 minSpreadWidth: isLandscape ? 0 : 815  // Mobile landscape: 0, Tablet/Portrait: 815
             });
 
+            let _resizeDebounce = null;
             window.addEventListener('resize', () => {
-                const isLand = window.innerWidth > window.innerHeight;
-                if (rendition && typeof rendition.spread === 'function') {
-                    rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
-                }
-                // Re-apply gap fix after orientation change
-                setTimeout(startSpreadGapObserver, 300);
+                clearTimeout(_resizeDebounce);
+                _resizeDebounce = setTimeout(() => {
+                    const isLand = window.innerWidth > window.innerHeight;
+                    if (rendition && typeof rendition.spread === 'function') {
+                        rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
+                    }
+                    // Resize the rendition to fit new dimensions
+                    if (rendition && typeof rendition.resize === 'function') {
+                        rendition.resize();
+                    }
+                    // Re-apply gap fix after orientation change
+                    setTimeout(startSpreadGapObserver, 300);
+                    // Re-apply content fixes after layout settles
+                    setTimeout(() => {
+                        try {
+                            const contentsList = rendition.getContents();
+                            if (contentsList) {
+                                contentsList.forEach(c => {
+                                    if (c && c.document && c.document.body) {
+                                        const isLandscape = window.innerWidth > window.innerHeight;
+                                        const body = c.document.body;
+                                        if (isLandscape) {
+                                            body.style.setProperty('padding-left', '20px', 'important');
+                                            body.style.setProperty('padding-right', '20px', 'important');
+                                            body.style.setProperty('padding-top', '10px', 'important');
+                                            body.style.setProperty('padding-bottom', '10px', 'important');
+                                            body.style.setProperty('box-sizing', 'border-box', 'important');
+                                            body.style.setProperty('width', '100%', 'important');
+                                            body.style.setProperty('max-width', '100%', 'important');
+                                            body.style.setProperty('overflow', 'hidden', 'important');
+                                            const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
+                                            images.forEach(img => {
+                                                img.style.setProperty('max-width', '100%', 'important');
+                                                img.style.setProperty('max-height', '100%', 'important');
+                                                img.style.setProperty('width', 'auto', 'important');
+                                                img.style.setProperty('height', 'auto', 'important');
+                                                img.style.setProperty('object-fit', 'contain', 'important');
+                                            });
+                                        } else {
+                                            // Reset landscape overrides for portrait
+                                            body.style.removeProperty('padding-left');
+                                            body.style.removeProperty('padding-right');
+                                            body.style.removeProperty('padding-top');
+                                            body.style.removeProperty('padding-bottom');
+                                            body.style.removeProperty('box-sizing');
+                                            body.style.removeProperty('max-width');
+                                            body.style.removeProperty('overflow');
+                                            const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
+                                            images.forEach(img => {
+                                                img.style.removeProperty('max-width');
+                                                img.style.removeProperty('max-height');
+                                                img.style.removeProperty('width');
+                                                img.style.removeProperty('height');
+                                                img.style.removeProperty('object-fit');
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                        } catch(e) {}
+                    }, 500);
+                }, 200);
             });
 
             let savedLocation = null;
@@ -782,51 +883,28 @@
                                     const isLandscape = window.innerWidth > window.innerHeight;
                                     if (!isLandscape) return;
 
-                                    // Directly override with inline !important — the only way to
-                                    // beat epub.js's own inline !important setProperty calls
-                                    // Apply healthy margins instead of zeroing out in landscape
-                                    body.style.setProperty('padding-left', '40px', 'important');
-                                    body.style.setProperty('padding-right', '40px', 'important');
-                                    body.style.setProperty('padding-top', '20px', 'important');
-                                    body.style.setProperty('padding-bottom', '20px', 'important');
+                                    // In landscape, just ensure body fits within its iframe properly
+                                    // Do NOT override all div/span widths - this breaks text reflow
+                                    body.style.setProperty('padding-left', '20px', 'important');
+                                    body.style.setProperty('padding-right', '20px', 'important');
+                                    body.style.setProperty('padding-top', '10px', 'important');
+                                    body.style.setProperty('padding-bottom', '10px', 'important');
                                     body.style.setProperty('margin', '0px', 'important');
                                     body.style.setProperty('overflow', 'hidden', 'important');
+                                    body.style.setProperty('box-sizing', 'border-box', 'important');
+                                    body.style.setProperty('width', '100%', 'important');
+                                    body.style.setProperty('max-width', '100%', 'important');
 
-                                    // Handle fixed-layout books
-                                    // Use '100%' in landscape so it stays within the half-page column
-                                    // Use '100vw' in portrait (since column = full screen)
-                                    const sizeVal = isLandscape ? '100%' : '100vw';
-                                    
-                                    body.style.setProperty('width', sizeVal, 'important');
-                                    body.style.setProperty('height', '100%', 'important');
-                                    body.style.setProperty('max-width', sizeVal, 'important');
-                                    body.style.setProperty('max-height', '100%', 'important');
-                                    body.style.setProperty('transform', 'none', 'important');
-
-                                    // Also kill fixed sizing/transforms on any major container divs inside body
-                                    const containers = body.querySelectorAll('div, span');
-                                    containers.forEach(div => {
-                                        div.style.setProperty('width', sizeVal, 'important');
-                                        div.style.setProperty('height', '100%', 'important');
-                                        div.style.setProperty('max-width', sizeVal, 'important');
-                                        div.style.setProperty('max-height', '100%', 'important');
-                                        div.style.setProperty('margin', '0', 'important');
-                                        div.style.setProperty('padding', '0', 'important');
-                                        div.style.setProperty('transform', 'none', 'important');
-                                    });
-
-                                    // Stretch images to fill the half-page exactly 
-                                    const images = body.querySelectorAll('img, svg, image');
-                                    const imgWidth = isLandscape ? '100%' : '100vw';
+                                    // Only fix images - make them fit within their container without cropping
+                                    const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
                                     images.forEach(img => {
-                                        img.style.setProperty('width', imgWidth, 'important');
-                                        img.style.setProperty('height', '100%', 'important');
-                                        img.style.setProperty('max-width', imgWidth, 'important');
+                                        img.style.setProperty('max-width', '100%', 'important');
                                         img.style.setProperty('max-height', '100%', 'important');
-                                        img.style.setProperty('margin', '0', 'important');
-                                        img.style.setProperty('padding', '0', 'important');
+                                        img.style.setProperty('width', 'auto', 'important');
+                                        img.style.setProperty('height', 'auto', 'important');
+                                        img.style.setProperty('object-fit', 'contain', 'important');
                                         img.style.setProperty('display', 'block', 'important');
-                                        img.style.setProperty('object-fit', 'cover', 'important');
+                                        img.style.setProperty('margin', '0 auto', 'important');
                                     });
                                 } catch (e) { }
                             }
@@ -958,17 +1036,14 @@
                 if (!container) return;
 
                 const views = Array.from(container.querySelectorAll('.epub-view'));
-                if (views.length !== 2 || !isLandscape) return;
+                
+                // If not landscape or only 1 view, let epub.js handle it normally
+                if (!isLandscape || views.length < 1) return;
 
                 const totalW = viewerEl.offsetWidth;
                 const totalH = viewerEl.offsetHeight;
-                const gap = 30; // pixels between columns
-                const sideMargin = 20; // pixels from outer edges
-                const availableW = totalW - (sideMargin * 2) - gap;
-                const halfW = Math.floor(availableW / 2);
-                const rightW = availableW - halfW;
 
-                // Force container to fill viewer absolutely
+                // Force container to fill viewer
                 container.style.position = 'absolute';
                 container.style.top = '0';
                 container.style.left = '0';
@@ -978,13 +1053,26 @@
                 container.style.flexDirection = 'row';
                 container.style.flexWrap = 'nowrap';
                 container.style.justifyContent = 'center';
-                container.style.alignItems = 'center';
-                container.style.gap = gap + 'px';
+                container.style.alignItems = 'stretch';
+                container.style.overflow = 'hidden';
 
-                // Left page
-                _sizeView(views[0], halfW, totalH);
-                // Right page
-                _sizeView(views[1], rightW, totalH);
+                if (views.length === 2) {
+                    const gap = 2; // minimal gap between columns
+                    const sideMargin = 0;
+                    const availableW = totalW - (sideMargin * 2) - gap;
+                    const halfW = Math.floor(availableW / 2);
+                    const rightW = availableW - halfW;
+
+                    container.style.gap = gap + 'px';
+
+                    // Left page
+                    _sizeView(views[0], halfW, totalH);
+                    // Right page
+                    _sizeView(views[1], rightW, totalH);
+                } else if (views.length === 1) {
+                    container.style.gap = '0';
+                    _sizeView(views[0], totalW, totalH);
+                }
             } catch (e) {
                 console.warn('applySpreadLayout error:', e);
             } finally {
@@ -1002,7 +1090,8 @@
                 'width:' + w + 'px',
                 'height:' + h + 'px',
                 'position:relative',
-                'display:block'
+                'display:block',
+                'box-sizing:border-box'
             ].join(';');
             const iframe = view.querySelector('iframe');
             if (iframe) {
@@ -1012,7 +1101,8 @@
                     'border:none',
                     'display:block',
                     'width:' + w + 'px',
-                    'height:' + h + 'px'
+                    'height:' + h + 'px',
+                    'box-sizing:border-box'
                 ].join(';');
             }
         }
@@ -1043,7 +1133,7 @@
                     _spreadGapObserver.disconnect();
                     _spreadGapObserver = null;
                 }
-            }, 2000);
+            }, 4000);
         }
 
         function removeSpreadGap() { startSpreadGapObserver(); }
