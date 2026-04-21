@@ -128,10 +128,6 @@
                 max-width: 280px;
                 width: 70%;
             }
-
-            #highlight-menu {
-                max-width: 200px;
-            }
         }
 
         .toolbar-group {
@@ -772,69 +768,40 @@
             });
 
             let _resizeDebounce = null;
+            let _lastOrientation = isLandscape ? 'landscape' : 'portrait';
+
             window.addEventListener('resize', () => {
                 clearTimeout(_resizeDebounce);
                 _resizeDebounce = setTimeout(() => {
                     const isLand = window.innerWidth > window.innerHeight;
+                    const newOrientation = isLand ? 'landscape' : 'portrait';
+
                     if (rendition && typeof rendition.spread === 'function') {
                         rendition.spread(isLand ? "auto" : "none", isLand ? 0 : 815);
                     }
-                    // Resize the rendition to fit new dimensions
+
+                    // Auto-switch zoom on orientation change
+                    if (newOrientation !== _lastOrientation) {
+                        _lastOrientation = newOrientation;
+                        if (isLand) {
+                            // Landscape: set 70% zoom
+                            currentFontSize = 70;
+                        } else {
+                            // Portrait: set 100% zoom
+                            currentFontSize = 100;
+                        }
+                        rendition.themes.fontSize(currentFontSize + "%");
+                        showNotification(`Zoom: ${currentFontSize}%`);
+                    }
+
+                    // Resize rendition to fit new dimensions
                     if (rendition && typeof rendition.resize === 'function') {
                         rendition.resize();
                     }
+
                     // Re-apply gap fix after orientation change
                     setTimeout(startSpreadGapObserver, 300);
-                    // Re-apply content fixes after layout settles
-                    setTimeout(() => {
-                        try {
-                            const contentsList = rendition.getContents();
-                            if (contentsList) {
-                                contentsList.forEach(c => {
-                                    if (c && c.document && c.document.body) {
-                                        const isLandscape = window.innerWidth > window.innerHeight;
-                                        const body = c.document.body;
-                                        if (isLandscape) {
-                                            body.style.setProperty('padding-left', '20px', 'important');
-                                            body.style.setProperty('padding-right', '20px', 'important');
-                                            body.style.setProperty('padding-top', '10px', 'important');
-                                            body.style.setProperty('padding-bottom', '10px', 'important');
-                                            body.style.setProperty('box-sizing', 'border-box', 'important');
-                                            body.style.setProperty('width', '100%', 'important');
-                                            body.style.setProperty('max-width', '100%', 'important');
-                                            body.style.setProperty('overflow', 'hidden', 'important');
-                                            const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
-                                            images.forEach(img => {
-                                                img.style.setProperty('max-width', '100%', 'important');
-                                                img.style.setProperty('max-height', '100%', 'important');
-                                                img.style.setProperty('width', 'auto', 'important');
-                                                img.style.setProperty('height', 'auto', 'important');
-                                                img.style.setProperty('object-fit', 'contain', 'important');
-                                            });
-                                        } else {
-                                            // Reset landscape overrides for portrait
-                                            body.style.removeProperty('padding-left');
-                                            body.style.removeProperty('padding-right');
-                                            body.style.removeProperty('padding-top');
-                                            body.style.removeProperty('padding-bottom');
-                                            body.style.removeProperty('box-sizing');
-                                            body.style.removeProperty('max-width');
-                                            body.style.removeProperty('overflow');
-                                            const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
-                                            images.forEach(img => {
-                                                img.style.removeProperty('max-width');
-                                                img.style.removeProperty('max-height');
-                                                img.style.removeProperty('width');
-                                                img.style.removeProperty('height');
-                                                img.style.removeProperty('object-fit');
-                                            });
-                                        }
-                                    }
-                                });
-                            }
-                        } catch(e) {}
-                    }, 500);
-                }, 200);
+                }, 250);
             });
 
             let savedLocation = null;
@@ -847,6 +814,14 @@
                 document.getElementById('loading').style.display = 'none';
                 setupGestures();
                 rendition.themes.select("light");
+
+                // Set initial zoom based on orientation
+                const initLandscape = window.innerWidth > window.innerHeight;
+                if (initLandscape) {
+                    currentFontSize = 70;
+                    rendition.themes.fontSize("70%");
+                }
+
                 loadHighlights();
 
                 book.loaded.navigation.then(function (toc) {
@@ -883,8 +858,7 @@
                                     const isLandscape = window.innerWidth > window.innerHeight;
                                     if (!isLandscape) return;
 
-                                    // In landscape, just ensure body fits within its iframe properly
-                                    // Do NOT override all div/span widths - this breaks text reflow
+                                    // Only fix body padding - do NOT touch div/span widths
                                     body.style.setProperty('padding-left', '20px', 'important');
                                     body.style.setProperty('padding-right', '20px', 'important');
                                     body.style.setProperty('padding-top', '10px', 'important');
@@ -895,7 +869,7 @@
                                     body.style.setProperty('width', '100%', 'important');
                                     body.style.setProperty('max-width', '100%', 'important');
 
-                                    // Only fix images - make them fit within their container without cropping
+                                    // Only fix images - contain them, don't crop
                                     const images = body.querySelectorAll('img, svg:not(.epubjs-hl)');
                                     images.forEach(img => {
                                         img.style.setProperty('max-width', '100%', 'important');
@@ -1025,7 +999,7 @@
         let _applyingLayout = false;
 
         function applySpreadLayout() {
-            if (_applyingLayout) return; // prevent re-entrancy
+            if (_applyingLayout) return;
             _applyingLayout = true;
             try {
                 const isLandscape = window.innerWidth > window.innerHeight;
@@ -1036,14 +1010,11 @@
                 if (!container) return;
 
                 const views = Array.from(container.querySelectorAll('.epub-view'));
-                
-                // If not landscape or only 1 view, let epub.js handle it normally
                 if (!isLandscape || views.length < 1) return;
 
                 const totalW = viewerEl.offsetWidth;
                 const totalH = viewerEl.offsetHeight;
 
-                // Force container to fill viewer
                 container.style.position = 'absolute';
                 container.style.top = '0';
                 container.style.left = '0';
@@ -1057,17 +1028,12 @@
                 container.style.overflow = 'hidden';
 
                 if (views.length === 2) {
-                    const gap = 2; // minimal gap between columns
-                    const sideMargin = 0;
-                    const availableW = totalW - (sideMargin * 2) - gap;
+                    const gap = 2;
+                    const availableW = totalW - gap;
                     const halfW = Math.floor(availableW / 2);
                     const rightW = availableW - halfW;
-
                     container.style.gap = gap + 'px';
-
-                    // Left page
                     _sizeView(views[0], halfW, totalH);
-                    // Right page
                     _sizeView(views[1], rightW, totalH);
                 } else if (views.length === 1) {
                     container.style.gap = '0';
@@ -1090,8 +1056,7 @@
                 'width:' + w + 'px',
                 'height:' + h + 'px',
                 'position:relative',
-                'display:block',
-                'box-sizing:border-box'
+                'display:block'
             ].join(';');
             const iframe = view.querySelector('iframe');
             if (iframe) {
@@ -1101,8 +1066,7 @@
                     'border:none',
                     'display:block',
                     'width:' + w + 'px',
-                    'height:' + h + 'px',
-                    'box-sizing:border-box'
+                    'height:' + h + 'px'
                 ].join(';');
             }
         }
@@ -1118,8 +1082,13 @@
             const viewerEl = document.getElementById('viewer');
             if (!viewerEl) return;
 
+            let _debounceTimer = null;
             _spreadGapObserver = new MutationObserver(() => {
-                applySpreadLayout();
+                // Debounce to prevent feedback loops during page transitions
+                if (_debounceTimer) clearTimeout(_debounceTimer);
+                _debounceTimer = setTimeout(() => {
+                    applySpreadLayout();
+                }, 50);
             });
             _spreadGapObserver.observe(viewerEl, {
                 childList: true,
@@ -1133,7 +1102,7 @@
                     _spreadGapObserver.disconnect();
                     _spreadGapObserver = null;
                 }
-            }, 4000);
+            }, 3000);
         }
 
         function removeSpreadGap() { startSpreadGapObserver(); }
@@ -2030,7 +1999,25 @@
         function finishNext() {
             peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
             peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
-            rendition.next().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.clipPath = "none"; peel.style.transform = "none"; }, 300); });
+            // Safety: always clean up peel after max 1.5s even if rendition.next() hangs
+            const safetyCleanup = setTimeout(() => {
+                peel.style.display = "none"; dropShadow.style.display = "none";
+                peel.style.clipPath = "none"; peel.style.transform = "none";
+                peel.style.transition = "none"; dropShadow.style.transition = "none";
+            }, 1500);
+            rendition.next().then(() => {
+                setTimeout(() => {
+                    clearTimeout(safetyCleanup);
+                    peel.style.display = "none"; dropShadow.style.display = "none";
+                    peel.style.clipPath = "none"; peel.style.transform = "none";
+                    peel.style.transition = "none"; dropShadow.style.transition = "none";
+                }, 300);
+            }).catch(() => {
+                clearTimeout(safetyCleanup);
+                peel.style.display = "none"; dropShadow.style.display = "none";
+                peel.style.clipPath = "none"; peel.style.transform = "none";
+                peel.style.transition = "none"; dropShadow.style.transition = "none";
+            });
         }
         function updatePeelPrev(diff) {
             const progress = Math.min(Math.max(diff / width, 0), 1);
@@ -2045,11 +2032,59 @@
         }
         function finishPrev() {
             peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
-            rendition.prev().then(() => { setTimeout(() => { peel.style.display = "none"; dropShadow.style.display = "none"; }, 100); });
+            const safetyCleanup = setTimeout(() => {
+                peel.style.display = "none"; dropShadow.style.display = "none";
+                peel.style.clipPath = "none"; peel.style.transform = "none";
+                peel.style.transition = "none"; dropShadow.style.transition = "none";
+            }, 1500);
+            rendition.prev().then(() => {
+                setTimeout(() => {
+                    clearTimeout(safetyCleanup);
+                    peel.style.display = "none"; dropShadow.style.display = "none";
+                    peel.style.clipPath = "none"; peel.style.transform = "none";
+                    peel.style.transition = "none"; dropShadow.style.transition = "none";
+                }, 100);
+            }).catch(() => {
+                clearTimeout(safetyCleanup);
+                peel.style.display = "none"; dropShadow.style.display = "none";
+                peel.style.clipPath = "none"; peel.style.transform = "none";
+                peel.style.transition = "none"; dropShadow.style.transition = "none";
+            });
         }
-        function resetFlip() { peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; }
-        function triggerNext() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); } else finishNext(); }; animate(); }
-        function triggerPrev() { width = window.innerWidth; let start = 0; const animate = () => { start += 25; if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); } else finishPrev(); }; animate(); }
+        function resetFlip() { peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = "none"; peel.style.display = "none"; dropShadow.style.display = "none"; peel.style.transform = "none"; isPageChanging = false; }
+        
+        let isPageChanging = false;
+        function triggerNext() {
+            if (isPageChanging) return;
+            isPageChanging = true;
+            width = window.innerWidth;
+            let start = 0;
+            const animate = () => {
+                start += 35;
+                if (start < width) { updatePeelNext(start); requestAnimationFrame(animate); }
+                else {
+                    finishNext();
+                    // Safety unlock after animation completes
+                    setTimeout(() => { isPageChanging = false; }, 600);
+                }
+            };
+            animate();
+        }
+        function triggerPrev() {
+            if (isPageChanging) return;
+            isPageChanging = true;
+            width = window.innerWidth;
+            let start = 0;
+            const animate = () => {
+                start += 35;
+                if (start < width) { updatePeelPrev(start); requestAnimationFrame(animate); }
+                else {
+                    finishPrev();
+                    setTimeout(() => { isPageChanging = false; }, 600);
+                }
+            };
+            animate();
+        }
 
         let initialPinchDistance = null;
         let isPinching = false;
@@ -2115,9 +2150,10 @@
 
                 if (!isDragging) return;
                 isDragging = false;
+                if (isPageChanging) { resetFlip(); return; }
                 const diff = startX - e.changedTouches[0].screenX;
-                if (diff > 100) finishNext();
-                else if (diff < -100) finishPrev();
+                if (diff > 100) { isPageChanging = true; finishNext(); setTimeout(() => { isPageChanging = false; }, 600); }
+                else if (diff < -100) { isPageChanging = true; finishPrev(); setTimeout(() => { isPageChanging = false; }, 600); }
                 else resetFlip();
             });
 
@@ -2139,9 +2175,10 @@
             rendition.on("mouseup", e => {
                 if (isHighlightMode || !isDragging) return;
                 isDragging = false;
+                if (isPageChanging) { resetFlip(); return; }
                 const diff = startX - e.screenX;
-                if (diff > 100) finishNext();
-                else if (diff < -100) finishPrev();
+                if (diff > 100) { isPageChanging = true; finishNext(); setTimeout(() => { isPageChanging = false; }, 600); }
+                else if (diff < -100) { isPageChanging = true; finishPrev(); setTimeout(() => { isPageChanging = false; }, 600); }
                 else resetFlip();
             });
         }
