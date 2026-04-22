@@ -810,108 +810,48 @@
                 `;
                     contents.document.head.appendChild(style);
 
-                    // ── SMART GAP FIX: Detect image-heavy vs text pages ──
-                    // Image-heavy pages (full-page illustrations): zero gap, flush merge
-                    // Text pages (even with partial images): keep normal epub.js layout
-                    (function applySmartGapFix() {
+                    // ── SAFE gap fix: only adjust body padding, NOT all child elements ──
+                    // The old code was setting width/height/margin/padding on EVERY div and span,
+                    // which broke epub.js layout calculations and caused stuck screens.
+                    (function applyGapFix() {
                         try {
                             const innerDoc = contents.document;
                             const body = innerDoc && innerDoc.body;
                             if (!body) return;
 
-                            /**
-                             * Detect if the current page content is primarily images.
-                             * Returns true if images occupy >50% of the visible area,
-                             * which indicates a full-page illustration layout.
-                             */
-                            function isImageHeavyPage() {
-                                try {
-                                    const images = body.querySelectorAll('img, svg, image, canvas');
-                                    if (images.length === 0) return false;
-
-                                    const bodyRect = body.getBoundingClientRect();
-                                    const bodyArea = bodyRect.width * bodyRect.height;
-                                    if (bodyArea <= 0) return false;
-
-                                    let totalImageArea = 0;
-                                    images.forEach(img => {
-                                        const rect = img.getBoundingClientRect();
-                                        // Only count images that are visible and of meaningful size
-                                        if (rect.width > 50 && rect.height > 50) {
-                                            totalImageArea += rect.width * rect.height;
-                                        }
-                                    });
-
-                                    const imageRatio = totalImageArea / bodyArea;
-                                    // If images cover more than 50% of the page → image-heavy
-                                    return imageRatio > 0.5;
-                                } catch (e) {
-                                    return false;
-                                }
-                            }
-
-                            function applyLayoutByContentType() {
+                            function safeBodyPadding() {
                                 try {
                                     const isLandscape = window.innerWidth > window.innerHeight;
                                     if (!isLandscape) return;
 
-                                    const imageHeavy = isImageHeavyPage();
-
-                                    if (imageHeavy) {
-                                        // ── IMAGE-HEAVY: Zero gap, flush merge ──
-                                        // Override column-width to exactly half the viewport
-                                        // (epub.js calculates columnWidth = width/2 - gap, leaving leftover space)
-                                        const iframeWidth = body.closest('html') ?
-                                            body.closest('html').clientWidth || window.innerWidth : window.innerWidth;
-                                        const halfWidth = Math.floor(iframeWidth / 2);
-                                        body.style.setProperty('column-gap', '0px', 'important');
-                                        body.style.setProperty('-webkit-column-gap', '0px', 'important');
-                                        body.style.setProperty('column-width', halfWidth + 'px', 'important');
-                                        body.style.setProperty('-webkit-column-width', halfWidth + 'px', 'important');
-                                        body.style.setProperty('padding', '0px', 'important');
-                                        body.style.setProperty('margin', '0px', 'important');
-                                        body.style.setProperty('overflow', 'hidden', 'important');
-
-                                        // Stretch images to fill their column exactly
-                                        const images = body.querySelectorAll('img, svg, image');
-                                        images.forEach(img => {
-                                            img.style.setProperty('width', '100%', 'important');
-                                            img.style.setProperty('height', '100%', 'important');
-                                            img.style.setProperty('max-width', '100%', 'important');
-                                            img.style.setProperty('max-height', '100%', 'important');
-                                            img.style.setProperty('object-fit', 'contain', 'important');
-                                            img.style.setProperty('display', 'block', 'important');
-                                            img.style.setProperty('margin', '0', 'important');
-                                            img.style.setProperty('padding', '0', 'important');
-                                        });
-                                    } else {
-                                        // ── TEXT-HEAVY: Keep normal epub.js spacing ──
-                                        body.style.setProperty('padding-left', '20px', 'important');
-                                        body.style.setProperty('padding-right', '20px', 'important');
-                                        body.style.setProperty('padding-top', '10px', 'important');
-                                        body.style.setProperty('padding-bottom', '10px', 'important');
-                                        body.style.setProperty('overflow', 'hidden', 'important');
-                                    }
+                                    // Only adjust body padding — leave everything else to epub.js
+                                    body.style.setProperty('padding-left', '20px', 'important');
+                                    body.style.setProperty('padding-right', '20px', 'important');
+                                    body.style.setProperty('padding-top', '10px', 'important');
+                                    body.style.setProperty('padding-bottom', '10px', 'important');
+                                    body.style.setProperty('overflow', 'hidden', 'important');
                                 } catch (e) { }
                             }
 
-                            // Run after a short delay to let images load
-                            setTimeout(applyLayoutByContentType, 150);
-                            setTimeout(applyLayoutByContentType, 500);
-                            setTimeout(applyLayoutByContentType, 1000);
+                            // Run immediately
+                            safeBodyPadding();
 
                             // Observe body style changes (epub.js may override)
                             if (typeof MutationObserver !== 'undefined') {
-                                let applyCount = 0;
                                 const observer = new MutationObserver(() => {
-                                    applyCount++;
-                                    if (applyCount <= 5) applyLayoutByContentType();
+                                    safeBodyPadding();
                                 });
                                 observer.observe(body, { attributes: true, attributeFilter: ['style'] });
+                                // Disconnect after 2 seconds (epub.js is done by then)
                                 setTimeout(() => observer.disconnect(), 2000);
                             }
 
-                        } catch (e) { console.warn('smart-gap-fix error:', e); }
+                            // Also poll a few times as safety net
+                            [100, 300, 600].forEach(delay => {
+                                setTimeout(safeBodyPadding, delay);
+                            });
+
+                        } catch (e) { console.warn('gap-fix error:', e); }
                     })();
 
                     updateContentSelectionMode(contents);
