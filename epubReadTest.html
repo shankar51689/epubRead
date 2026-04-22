@@ -695,6 +695,9 @@
         let ttsQueue = [];
         let ttsHighlightCfiRange = null;
 
+        // Track if book is fixed-layout (pre-paginated) — no gap needed for such books
+        let isPrePaginated = false;
+
         // Track last known orientation to detect actual changes
         let lastKnownOrientation = null;
         // Debounce timer for resize
@@ -788,6 +791,38 @@
 
             rendition.display(startOptions.cfi).then(() => {
                 document.getElementById('loading').style.display = 'none';
+
+                // ── Detect if book is fixed-layout (pre-paginated) ──
+                // Pre-paginated books (image-on-text, comics, children's books) should NOT get
+                // extra body padding/gap — they are designed with exact viewport dimensions.
+                // Only reflowable (text) books need the gap fix for landscape readability.
+                try {
+                    const meta = book.packaging && book.packaging.metadata;
+                    const spine = book.packaging && book.packaging.spine;
+                    // Check global metadata layout
+                    if (meta && meta.layout === 'pre-paginated') {
+                        isPrePaginated = true;
+                    }
+                    // Also check via rendition spread/layout hints from spine
+                    if (!isPrePaginated && spine && spine.length > 0) {
+                        // If most spine items have properties containing 'pre-paginated', treat as fixed
+                        let fixedCount = 0;
+                        spine.forEach(function (item) {
+                            if (item.properties && item.properties.indexOf('pre-paginated') !== -1) {
+                                fixedCount++;
+                            }
+                        });
+                        if (fixedCount > spine.length * 0.5) {
+                            isPrePaginated = true;
+                        }
+                    }
+                    // epub.js also exposes book.package sometimes
+                    if (!isPrePaginated && book.package && book.package.metadata &&
+                        book.package.metadata.layout === 'pre-paginated') {
+                        isPrePaginated = true;
+                    }
+                    console.log('[Reader] Book layout:', isPrePaginated ? 'pre-paginated (fixed)' : 'reflowable (text)');
+                } catch (e) { console.warn('Layout detection error:', e); }
                 setupGestures();
                 rendition.themes.select("light");
                 loadHighlights();
@@ -823,6 +858,11 @@
                                 try {
                                     const isLandscape = window.innerWidth > window.innerHeight;
                                     if (!isLandscape) return;
+
+                                    // SKIP gap fix for pre-paginated (fixed-layout) books
+                                    // These books have exact viewport dimensions (image + text overlays)
+                                    // and adding padding creates unwanted gaps between pages
+                                    if (isPrePaginated) return;
 
                                     // Only adjust body padding — leave everything else to epub.js
                                     body.style.setProperty('padding-left', '20px', 'important');
