@@ -1150,52 +1150,35 @@
             if (!contentsList || contentsList.length === 0) return null;
 
             try {
-                // We need to determine which contents fall within the current visible location
                 for (let i = 0; i < contentsList.length; i++) {
                     const contents = contentsList[i];
                     const doc = contents.document;
                     const win = contents.window;
+                    const vw = win.innerWidth;
+                    const vh = win.innerHeight;
 
-                    // Create a range for this document
-                    let docRange = doc.createRange();
-                    docRange.selectNodeContents(doc.body);
-
-                    // Get start/end CFI ranges
-                    let rangeStart, rangeEnd;
-                    try { rangeStart = rendition.getRange(loc.start.cfi); } catch (e) { }
-                    try { rangeEnd = rendition.getRange(loc.end.cfi); } catch (e) { }
-
-                    let startNode = docRange.startContainer;
-                    let startOffset = docRange.startOffset;
-                    let endNode = docRange.endContainer;
-                    let endOffset = docRange.endOffset;
-
-                    // If this doc is the start page
-                    if (rangeStart && doc.contains(rangeStart.startContainer)) {
-                        startNode = rangeStart.startContainer;
-                        startOffset = rangeStart.startOffset;
-                    }
-                    // If this doc is the end page
-                    if (rangeEnd && doc.contains(rangeEnd.endContainer)) {
-                        endNode = rangeEnd.endContainer;
-                        endOffset = rangeEnd.endOffset;
-                    }
-
-                    // Build the intersection range for this document
-                    let visRange = doc.createRange();
+                    let startNode = null, startOffset = 0;
+                    let endNode = null, endOffset = 0;
                     try {
-                        visRange.setStart(startNode, startOffset);
-                        visRange.setEnd(endNode, endOffset);
-                    } catch (e) { continue; }
-
-                    if (visRange.collapsed) continue;
+                        let rStart = rendition.getRange(loc.start.cfi);
+                        if (doc.contains(rStart.startContainer)) {
+                            startNode = rStart.startContainer;
+                            startOffset = rStart.startOffset;
+                        }
+                    } catch (e) { }
+                    try {
+                        let rEnd = rendition.getRange(loc.end.cfi);
+                        if (doc.contains(rEnd.endContainer)) {
+                            endNode = rEnd.endContainer;
+                            endOffset = rEnd.endOffset;
+                        }
+                    } catch (e) { }
 
                     let walker = doc.createTreeWalker(
-                        visRange.commonAncestorContainer,
+                        doc.body,
                         NodeFilter.SHOW_TEXT,
                         {
                             acceptNode: function (node) {
-                                if (!visRange.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
                                 let parent = node.parentElement;
                                 if (parent && win) {
                                     const style = win.getComputedStyle(parent);
@@ -1203,19 +1186,37 @@
                                         return NodeFilter.FILTER_REJECT;
                                     }
                                 }
-                                return NodeFilter.FILTER_ACCEPT;
+
+                                if (!node.nodeValue.trim()) {
+                                    return NodeFilter.FILTER_ACCEPT;
+                                }
+
+                                let range = doc.createRange();
+                                range.selectNodeContents(node);
+                                let rects = range.getClientRects();
+                                if (rects.length === 0) return NodeFilter.FILTER_REJECT;
+
+                                let isVisible = false;
+                                for (let j = 0; j < rects.length; j++) {
+                                    let rect = rects[j];
+                                    if (rect.right > -10 && rect.left < vw + 10 && rect.bottom > -10 && rect.top < vh + 10) {
+                                        isVisible = true;
+                                        break;
+                                    }
+                                }
+                                return isVisible ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
                             }
                         }
                     );
 
                     let node = walker.nextNode();
-                    if (!node && visRange.commonAncestorContainer.nodeType === 3) {
-                        node = visRange.commonAncestorContainer;
-                    }
-
                     while (node) {
-                        let nodeStart = (node === visRange.startContainer) ? visRange.startOffset : 0;
-                        let nodeEnd = (node === visRange.endContainer) ? visRange.endOffset : node.textContent.length;
+                        let nodeStart = (node === startNode) ? startOffset : 0;
+                        let nodeEnd = (node === endNode) ? endOffset : node.textContent.length;
+
+                        if (nodeStart < 0) nodeStart = 0;
+                        if (nodeEnd > node.textContent.length) nodeEnd = node.textContent.length;
+                        if (nodeStart > nodeEnd) { nodeStart = 0; nodeEnd = node.textContent.length; }
 
                         if (nodeStart < nodeEnd) {
                             let textPart = node.textContent.substring(nodeStart, nodeEnd);
@@ -1228,11 +1229,9 @@
                             });
                             ttsOriginalText += textPart;
                         }
-                        if (node === visRange.endContainer) break;
                         node = walker.nextNode();
                     }
                 }
-
                 return ttsOriginalText || null;
             } catch (e) {
                 console.warn(e);
@@ -1506,7 +1505,7 @@
                         const parsedIndex = Number(rawIndex);
 
                         // Trust native progress and kill simulator ONLY if we see active string advancement
-                        if (parsedIndex > 0) {
+                        if (parsedIndex >= 0) {
                             window.ttsHadRealProgress = true;
                             window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                         }
