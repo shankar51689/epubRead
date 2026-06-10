@@ -1186,7 +1186,7 @@
                                         return NodeFilter.FILTER_REJECT;
                                     }
                                 }
-                                
+
                                 if (!node.nodeValue.trim()) {
                                     return NodeFilter.FILTER_ACCEPT;
                                 }
@@ -1195,7 +1195,7 @@
                                 range.selectNodeContents(node);
                                 let rects = range.getClientRects();
                                 if (rects.length === 0) return NodeFilter.FILTER_REJECT;
-                                
+
                                 let isVisible = false;
                                 for (let j = 0; j < rects.length; j++) {
                                     let rect = rects[j];
@@ -1213,7 +1213,7 @@
                     while (node) {
                         let nodeStart = (node === startNode) ? startOffset : 0;
                         let nodeEnd = (node === endNode) ? endOffset : node.textContent.length;
-                        
+
                         if (nodeStart < 0) nodeStart = 0;
                         if (nodeEnd > node.textContent.length) nodeEnd = node.textContent.length;
                         if (nodeStart > nodeEnd) { nodeStart = 0; nodeEnd = node.textContent.length; }

@@ -1179,16 +1179,13 @@
                         NodeFilter.SHOW_TEXT,
                         {
                             acceptNode: function (node) {
+                                if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
                                 let parent = node.parentElement;
                                 if (parent && win) {
                                     const style = win.getComputedStyle(parent);
                                     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
                                         return NodeFilter.FILTER_REJECT;
                                     }
-                                }
-
-                                if (!node.nodeValue.trim()) {
-                                    return NodeFilter.FILTER_ACCEPT;
                                 }
 
                                 let range = doc.createRange();
@@ -1505,7 +1502,7 @@
                         const parsedIndex = Number(rawIndex);
 
                         // Trust native progress and kill simulator ONLY if we see active string advancement
-                        if (parsedIndex >= 0) {
+                        if (parsedIndex > 0) {
                             window.ttsHadRealProgress = true;
                             window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                         }
