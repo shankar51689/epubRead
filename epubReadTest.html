@@ -810,6 +810,9 @@
                 `;
                     contents.document.head.appendChild(style);
 
+                    applyZoomForce(contents);
+
+
                     // ── SAFE gap fix: only adjust body padding, NOT all child elements ──
                     // The old code was setting width/height/margin/padding on EVERY div and span,
                     // which broke epub.js layout calculations and caused stuck screens.
@@ -1765,6 +1768,30 @@
             }
         }
 
+        function applyZoomForce(content) {
+            let style = content.document.getElementById('zoom-force-style');
+            if (!style) {
+                style = content.document.createElement('style');
+                style.id = 'zoom-force-style';
+                content.document.head.appendChild(style);
+            }
+            style.innerHTML = `
+                body {
+                    font-size: ${currentFontSize}% !important;
+                }
+                p, div, span, a, li, td, th {
+                    font-size: 1em !important;
+                    line-height: 1.5 !important;
+                }
+                h1 { font-size: 2em !important; }
+                h2 { font-size: 1.5em !important; }
+                h3 { font-size: 1.17em !important; }
+                h4 { font-size: 1em !important; }
+                h5 { font-size: 0.83em !important; }
+                h6 { font-size: 0.67em !important; }
+            `;
+        }
+
         function changeFontSize(amount) {
             currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
             showNotification(`Zoom: ${currentFontSize}%`);
@@ -1773,6 +1800,12 @@
             let storedHighlights = getStoredHighlights();
             storedHighlights.forEach(h => { let cfi = h.cfi || h; rendition.annotations.remove(cfi, 'highlight'); });
             rendition.themes.fontSize(currentFontSize + "%");
+            
+            const contentsList = rendition.getContents();
+            if (contentsList) {
+                contentsList.forEach(c => applyZoomForce(c));
+            }
+
             if (currentCfi) {
                 rendition.display(currentCfi).then(() => { setTimeout(() => { loadHighlights(); }, 150); });
             }
