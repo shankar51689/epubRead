@@ -810,9 +810,6 @@
                 `;
                     contents.document.head.appendChild(style);
 
-                    applyZoomForce(contents);
-
-
                     // ── SAFE gap fix: only adjust body padding, NOT all child elements ──
                     // The old code was setting width/height/margin/padding on EVERY div and span,
                     // which broke epub.js layout calculations and caused stuck screens.
@@ -1182,16 +1179,13 @@
                         NodeFilter.SHOW_TEXT,
                         {
                             acceptNode: function (node) {
+                                if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
                                 let parent = node.parentElement;
                                 if (parent && win) {
                                     const style = win.getComputedStyle(parent);
                                     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
                                         return NodeFilter.FILTER_REJECT;
                                     }
-                                }
-
-                                if (!node.nodeValue.trim()) {
-                                    return NodeFilter.FILTER_ACCEPT;
                                 }
 
                                 let range = doc.createRange();
@@ -1508,7 +1502,7 @@
                         const parsedIndex = Number(rawIndex);
 
                         // Trust native progress and kill simulator ONLY if we see active string advancement
-                        if (parsedIndex >= 0) {
+                        if (parsedIndex > 0) {
                             window.ttsHadRealProgress = true;
                             window.ttsSimulatedInterval && clearInterval(window.ttsSimulatedInterval);
                         }
@@ -1768,30 +1762,6 @@
             }
         }
 
-        function applyZoomForce(content) {
-            let style = content.document.getElementById('zoom-force-style');
-            if (!style) {
-                style = content.document.createElement('style');
-                style.id = 'zoom-force-style';
-                content.document.head.appendChild(style);
-            }
-            style.innerHTML = `
-                body {
-                    font-size: ${currentFontSize}% !important;
-                }
-                p, div, span, a, li, td, th {
-                    font-size: 1em !important;
-                    line-height: 1.5 !important;
-                }
-                h1 { font-size: 2em !important; }
-                h2 { font-size: 1.5em !important; }
-                h3 { font-size: 1.17em !important; }
-                h4 { font-size: 1em !important; }
-                h5 { font-size: 0.83em !important; }
-                h6 { font-size: 0.67em !important; }
-            `;
-        }
-
         function changeFontSize(amount) {
             currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
             showNotification(`Zoom: ${currentFontSize}%`);
@@ -1800,12 +1770,6 @@
             let storedHighlights = getStoredHighlights();
             storedHighlights.forEach(h => { let cfi = h.cfi || h; rendition.annotations.remove(cfi, 'highlight'); });
             rendition.themes.fontSize(currentFontSize + "%");
-            
-            const contentsList = rendition.getContents();
-            if (contentsList) {
-                contentsList.forEach(c => applyZoomForce(c));
-            }
-
             if (currentCfi) {
                 rendition.display(currentCfi).then(() => { setTimeout(() => { loadHighlights(); }, 150); });
             }
@@ -1868,13 +1832,6 @@
                 resetFlip();
                 return;
             }
-            const loc = rendition.currentLocation();
-            if (loc && loc.atEnd) {
-                resetFlip();
-                releaseNavLock();
-                showNotification("At the end of the book");
-                return;
-            }
             peel.style.transition = "all 0.4s ease-out"; dropShadow.style.transition = "all 0.4s ease-out";
             peel.style.clipPath = `polygon(0 0, 0% 0, 0% 100%, 0% 100%)`; dropShadow.style.opacity = 0;
             rendition.next().then(() => {
@@ -1907,13 +1864,6 @@
                 resetFlip();
                 return;
             }
-            const loc = rendition.currentLocation();
-            if (loc && loc.atStart) {
-                resetFlip();
-                releaseNavLock();
-                showNotification("At the beginning of the book");
-                return;
-            }
             peel.style.transition = "all 0.3s ease-out"; peel.style.clipPath = `polygon(0 0, 100% 0, 100% 100%, 0% 100%)`; peel.style.transform = `rotateY(0deg)`; dropShadow.style.opacity = 0;
             rendition.prev().then(() => {
                 setTimeout(() => {
@@ -1936,11 +1886,6 @@
 
         function triggerNext() {
             if (isNavigating) return; // Block if already navigating
-            const loc = rendition.currentLocation();
-            if (loc && loc.atEnd) {
-                showNotification("At the end of the book");
-                return;
-            }
             width = window.innerWidth;
             let start = 0;
             const animate = () => {
@@ -1957,11 +1902,6 @@
 
         function triggerPrev() {
             if (isNavigating) return; // Block if already navigating
-            const loc = rendition.currentLocation();
-            if (loc && loc.atStart) {
-                showNotification("At the beginning of the book");
-                return;
-            }
             width = window.innerWidth;
             let start = 0;
             const animate = () => {
