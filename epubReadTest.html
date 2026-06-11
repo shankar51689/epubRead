@@ -863,6 +863,9 @@
 
                     // Re-apply theme if content loads after theme switch
                     if (currentTheme === 'dark') applyDarkThemeForce(contents);
+
+                    // Apply current zoom level to newly loaded content
+                    if (currentFontSize !== 100) applyZoomLevel(contents);
                 });
 
                 rendition.on('relocated', (location) => {
@@ -1762,17 +1765,33 @@
             }
         }
 
+        /**
+         * Apply CSS zoom to iframe body — works universally even when epub has hardcoded px font sizes.
+         * Unlike rendition.themes.fontSize() which only sets body font-size (ignored by elements 
+         * with explicit px/pt sizes), CSS zoom scales EVERYTHING visually.
+         */
+        function applyZoomLevel(content) {
+            if (!content || !content.document || !content.document.body) return;
+            const zoomFactor = currentFontSize / 100;
+            content.document.body.style.setProperty('zoom', zoomFactor.toString(), 'important');
+        }
+
         function changeFontSize(amount) {
             currentFontSize = Math.min(Math.max(currentFontSize + amount, 50), 300);
             showNotification(`Zoom: ${currentFontSize}%`);
-            const loc = rendition.currentLocation();
-            const currentCfi = loc && loc.start ? loc.start.cfi : null;
+
+            // Remove highlights before zoom change
             let storedHighlights = getStoredHighlights();
-            storedHighlights.forEach(h => { let cfi = h.cfi || h; rendition.annotations.remove(cfi, 'highlight'); });
-            rendition.themes.fontSize(currentFontSize + "%");
-            if (currentCfi) {
-                rendition.display(currentCfi).then(() => { setTimeout(() => { loadHighlights(); }, 150); });
+            storedHighlights.forEach(h => { let cfi = h.cfi || h; try { rendition.annotations.remove(cfi, 'highlight'); } catch(e){} });
+
+            // Apply CSS zoom to all currently loaded iframe contents
+            const contentsList = rendition.getContents();
+            if (contentsList) {
+                contentsList.forEach(c => applyZoomLevel(c));
             }
+
+            // Re-apply highlights after a short delay to let layout settle
+            setTimeout(() => { loadHighlights(); }, 200);
         }
 
         function toggleSearch() { searchContainer.classList.toggle('active'); if (searchContainer.classList.contains('active')) searchInput.focus(); }
